@@ -1,0 +1,5 @@
+{:width 160
+ :map {:comma? false :sort? true}
+ :list {:hang? true}
+ :parallel? true
+ :search-config? true}

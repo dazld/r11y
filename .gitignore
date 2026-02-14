@@ -1,0 +1,32 @@
+.clj-kondo
+/target
+/lib
+/checkouts
+pom.xml
+*.jar
+*.class
+/.env
+.nrepl-port
+/log
+.cpcache
+/build
+
+# Logs
+logs
+*.log
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Native binary
+/r11y
+
+# Compiled classes
+/classes
+/.claude
+/CLAUDE.local.md
+/CLAUDE.md
+/GEMINI.md

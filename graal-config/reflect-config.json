@@ -1,0 +1,37 @@
+[
+  {
+    "name": "org.jsoup.nodes.Document",
+    "allPublicMethods": true
+  },
+  {
+    "name": "org.jsoup.nodes.Element",
+    "allPublicMethods": true,
+    "allPublicFields": true
+  },
+  {
+    "name": "org.jsoup.nodes.Node",
+    "allPublicMethods": true
+  },
+  {
+    "name": "org.jsoup.nodes.TextNode",
+    "allPublicMethods": true
+  },
+  {
+    "name": "org.jsoup.Jsoup",
+    "allPublicMethods": true
+  },
+  {
+    "name": "java.net.URI",
+    "allPublicMethods": true,
+    "allPublicConstructors": true
+  },
+  {
+    "name": "java.util.regex.Pattern",
+    "allPublicMethods": true,
+    "allPublicConstructors": true
+  },
+  {
+    "name": "java.util.regex.Matcher",
+    "allPublicMethods": true
+  }
+]
