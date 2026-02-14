@@ -12,6 +12,14 @@ A fast, GraalVM-compiled CLI tool for extracting readable content from web pages
 - Configurable link density threshold for content filtering
 - Fast startup with GraalVM native compilation (~40ms)
 
+## Notes on repo
+
+This is a personal tool I've been using in my own projects - I specifically wanted a way to get URLs without clobbering the whitespace,
+and I couldn't find a tool that did that. I've used and recommend trafilatura before - but given it collapsed whitespace, and was very much
+a python project, I wanted to explore building a Clojure & Graal tool to do similar, and here we go.
+
+It's not as battle-tested as other more mature extraction tools, but PRs are welcome to improve this.
+
 ## Installation
 
 ### Prebuilt Binary (Linux x86_64)
