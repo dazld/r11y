@@ -13,6 +13,10 @@ A fast, GraalVM-compiled CLI tool for extracting readable content from web pages
 
 ## Installation
 
+### Prebuilt Binary (Linux x86_64)
+
+Download the latest binary from [GitHub Releases](https://github.com/dazld/r11y/releases).
+
 ### Quick Build
 
 ```bash
@@ -59,11 +63,6 @@ brew install --cask graalvm-jdk
 ```bash
 sdk install java 22-graal
 sdk use java 22-graal
-```
-
-After installing GraalVM, you may need to install the native-image tool:
-```bash
-gu install native-image
 ```
 
 #### Building
@@ -153,4 +152,4 @@ r11y uses content extraction algorithms inspired by Mozilla's Readability and tr
 
 ## License
 
-See LICENSE file for details.
+MIT License. See [LICENSE](LICENSE) for details.
