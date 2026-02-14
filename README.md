@@ -5,6 +5,7 @@ A fast, GraalVM-compiled CLI tool for extracting readable content from web pages
 ## Features
 
 - Extract main content from any URL as clean Markdown
+- Preserves whitespace in preformatted blocks
 - Rich metadata extraction with YAML frontmatter (title, author, date, description)
 - JSON-LD structured data support
 - GitHub-optimized extraction (README files, blob content)
