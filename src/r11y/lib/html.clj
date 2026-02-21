@@ -385,8 +385,8 @@
   "Extract metadata from document"
   [^Document doc base-url]
   (let [json-ld (extract-json-ld doc)
-        title (first-non-blank (get-json-ld-value json-ld :headline)
-                               (get-json-ld-value json-ld :name)
+        title (first-non-blank (get-json-ld-value json-ld :name)
+                               (get-json-ld-value json-ld :headline)
                                (safe-text (.selectFirst doc "title"))
                                (safe-attr (.selectFirst doc "meta[property=og:title]") "content"))
         author (first-non-blank (get-json-ld-value json-ld :author :name)
