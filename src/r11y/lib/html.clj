@@ -66,8 +66,8 @@
         ;; Internal links are ignored for link density calculation
         (when (= "a" (.tagName elem))
           (cond-> elem
-            doc-local-link? (.attr "--mnp-doc-local-link" "true")
-            true (.attr "--mnp-cleaning--data-link-type" (if is-internal? "internal" "external"))))))
+                  doc-local-link? (.attr "--mnp-doc-local-link" "true")
+                  true (.attr "--mnp-cleaning--data-link-type" (if is-internal? "internal" "external"))))))
     ;; Process all src attributes (images, scripts, iframes, etc)
     (doseq [elem (.select doc "[src]")]
       (let [src (.attr elem "src")
@@ -543,30 +543,61 @@
    Options:
    :format - :html (default) or :markdown
    :link-density-threshold - float between 0-1 (default 0.5)
-   :with-metadata - include YAML frontmatter with metadata (default false)"
-  [url & {:keys [format link-density-threshold with-metadata] :or {format :html link-density-threshold default-link-density-threshold with-metadata false}}]
-  (let
-    [is-github-blob? (and (str/includes? url "github.com") (str/includes? url "/blob/"))
-     ;; Fetch original URL for metadata if it's a GitHub blob
-     metadata-response (when (and with-metadata is-github-blob?)
-                         (fetch-url url))
-     metadata (when
-                metadata-response
-                (let [doc (parse-html-bytes (:body metadata-response) url)]
-                  ;; Extract metadata using original URL, not normalized
-                  (extract-metadata doc url)))
-     ;; Now fetch content URL (possibly raw for GitHub)
-     normalized-url (normalize-github-url url)
-     response (fetch-url normalized-url)
-     content-type (get-in response
-                          [:headers :content-type]
-                          "")
-     body (:body response)
-     frontmatter (when metadata (metadata-to-frontmatter metadata))]
+   :with-metadata - include YAML frontmatter with metadata (default false)
+   :content - pre-fetched HTML content (String or bytes), skips initial fetch
+   :content-type - content-type of pre-fetched content
+   :fetch-fn - custom fetch function returning http-kit style response map"
+  [url & {:keys [format link-density-threshold with-metadata
+                 content content-type fetch-fn]
+          :or {format :html
+               link-density-threshold default-link-density-threshold
+               with-metadata false}}]
+  (let [do-fetch (or fetch-fn fetch-url)
+        normalized-url (normalize-github-url url)
+        urls-differ? (not= normalized-url url)
+        ;; Step 1: Resolve original content
+        ;; Fetch original URL when no pre-fetched content, unless URLs differ
+        ;; and we don't need metadata (optimization: skip unneeded fetch)
+        original-response (when (and (not content)
+                                     (or with-metadata (not urls-differ?)))
+                            (do-fetch url))
+        original-body (or content (:body original-response))
+        ;; Step 2: Extract metadata from original content
+        metadata (when (and with-metadata original-body)
+                   (let [doc (if (bytes? original-body)
+                               (parse-html-bytes original-body url)
+                               (Jsoup/parse ^String original-body))]
+                     (extract-metadata doc url)))
+        ;; Step 3: Fetch normalized URL for extraction if URLs differ
+        extraction-response (when urls-differ? (do-fetch normalized-url))
+        extraction-body (if urls-differ?
+                          (:body extraction-response)
+                          original-body)
+        resolved-content-type (cond
+                                extraction-response (get-in extraction-response [:headers :content-type] "")
+                                content-type content-type
+                                original-response (get-in original-response [:headers :content-type] "")
+                                :else "text/html")
+        frontmatter (when metadata (metadata-to-frontmatter metadata))
+        fallback-extract (fn []
+                           (if metadata
+                             (let [result (extract-content extraction-body
+                                                          :base-url normalized-url
+                                                          :format format
+                                                          :link-density-threshold link-density-threshold
+                                                          :with-metadata false)]
+                               (assoc result
+                                      :markdown (str frontmatter (:markdown result))
+                                      :metadata metadata))
+                             (extract-content extraction-body
+                                              :base-url normalized-url
+                                              :format format
+                                              :link-density-threshold link-density-threshold
+                                              :with-metadata with-metadata)))]
     (cond
       ;; For non-HTML content (like raw text), return as-is with metadata
-      (not (str/includes? (str/lower-case content-type) "text/html"))
-      (let [text-body (bytes->utf8 body)]
+      (not (str/includes? (str/lower-case resolved-content-type) "text/html"))
+      (let [text-body (if (bytes? extraction-body) (bytes->utf8 extraction-body) extraction-body)]
         {:markdown (str frontmatter text-body)
          :html text-body
          :links []
@@ -578,36 +609,27 @@
            (not (str/includes? normalized-url "/blob/"))
            (not (str/includes? normalized-url "/issues"))
            (not (str/includes? normalized-url "/pull")))
-      (if-let [^String readme-html (extract-github-readme (bytes->utf8 body))]
-        (let [readme-markdown (html-to-markdown readme-html)
-              doc (Jsoup/parse readme-html)
-              ;; Extract links and images from README
-              link-elements (.select doc "a[href]")
-              links (clean-links link-elements)
-              image-elements (.select doc "img[src]")
-              images (->> image-elements
-                          (map (fn [^Element elem]
-                                 {:alt (.attr elem "alt")
-                                  :url (.attr elem "src")}))
-                          (filter #(not (str/blank? (:url %))))
-                          (distinct)
-                          (sort-by :url)
-                          vec)]
-          {:markdown readme-markdown
-           :html readme-html
-           :links links
-           :images images
-           :metadata (or metadata {})})
-        ;; Fallback to normal extraction if README extraction fails
-        (extract-content body
-                         :base-url normalized-url
-                         :format format
-                         :link-density-threshold link-density-threshold
-                         :with-metadata with-metadata))
+      (let [body-str (if (bytes? extraction-body) (bytes->utf8 extraction-body) extraction-body)]
+        (if-let [^String readme-html (extract-github-readme body-str)]
+          (let [readme-markdown (html-to-markdown readme-html)
+                doc (Jsoup/parse readme-html)
+                link-elements (.select doc "a[href]")
+                links (clean-links link-elements)
+                image-elements (.select doc "img[src]")
+                images (->> image-elements
+                            (map (fn [^Element elem]
+                                   {:alt (.attr elem "alt")
+                                    :url (.attr elem "src")}))
+                            (filter #(not (str/blank? (:url %))))
+                            (distinct)
+                            (sort-by :url)
+                            vec)]
+            {:markdown (str frontmatter readme-markdown)
+             :html readme-html
+             :links links
+             :images images
+             :metadata (or metadata {})})
+          (fallback-extract)))
 
       ;; Default: perform normal HTML extraction
-      :else (extract-content body
-                             :base-url normalized-url
-                             :format format
-                             :link-density-threshold link-density-threshold
-                             :with-metadata with-metadata))))
+      :else (fallback-extract))))
