@@ -223,7 +223,7 @@
 ;; Test field name variations
 
 (deftest test-headline-vs-name
-  (testing "Prefer headline over name for title"
+  (testing "Prefer name over headline for title"
     (let [json-ld "{
         \"@type\": \"Article\",
         \"headline\": \"Headline Title\",
@@ -232,7 +232,7 @@
           html-str (str "<html><head><script type='application/ld+json'>" json-ld "</script></head><body><p>Content</p></body></html>")
           doc (Jsoup/parse html-str)
           metadata (html/extract-metadata doc "https://example.com/test")]
-      (is (= "Headline Title" (:title metadata)) "Should prefer headline over name"))))
+      (is (= "Name Title" (:title metadata)) "Should prefer name over headline"))))
 
 (deftest test-datepublished-vs-datecreated
   (testing "Prefer datePublished over dateCreated"
