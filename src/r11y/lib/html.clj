@@ -148,9 +148,13 @@
    (cond (instance? TextNode node) (let [text (.getWholeText ^TextNode node)]
                                      (if preserve-whitespace?
                                        text
-                                       (-> text
-                                           (str/replace #"\s+" " ")
-                                           str/trim)))
+                                       (let [collapsed (str/replace text #"\s+" " ")
+                                             trimmed (str/trim collapsed)]
+                                         (if (str/blank? trimmed)
+                                           (if (str/blank? text) "" " ")
+                                           (str (when (str/starts-with? collapsed " ") " ")
+                                                trimmed
+                                                (when (str/ends-with? collapsed " ") " "))))))
          (instance? Element node) (element-to-markdown node depth preserve-whitespace?)
          :else "")))
 
@@ -194,6 +198,16 @@
 
 
 
+(defn- wrap-inline-marker
+  "Wrap content with markdown markers, moving leading/trailing whitespace outside"
+  [content marker]
+  (let [trimmed (str/trim content)]
+    (if (str/blank? trimmed)
+      content
+      (str (when (str/starts-with? content " ") " ")
+           marker trimmed marker
+           (when (str/ends-with? content " ") " ")))))
+
 (defn- element-to-markdown
   ([^Element element] (element-to-markdown element 0 false))
   ([^Element element depth preserve-whitespace?]
@@ -220,10 +234,10 @@
        "p" (str content "\n\n")
        "br" "\n"
        "hr" "\n---\n\n"
-       "strong" (str "**" content "**")
-       "b" (str "**" content "**")
-       "em" (str "*" content "*")
-       "i" (str "*" content "*")
+       "strong" (wrap-inline-marker content "**")
+       "b" (wrap-inline-marker content "**")
+       "em" (wrap-inline-marker content "*")
+       "i" (wrap-inline-marker content "*")
        "code" (str pad-start PRESERVE_START_TOKEN content PRESERVE_END_TOKEN pad-end)
        "pre" (str pad-start
                   (when-not contains-code? PRESERVE_START_TOKEN)

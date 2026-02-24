@@ -159,8 +159,8 @@
           result (:markdown (html/extract-content html-str :format :markdown))]
       (is (re-find #"\*\*bold\*\*" result) "Strong should convert to **bold**")
       (is (re-find #"\*italic\*" result) "Em should convert to *italic*")
-      (is (re-find #"Also\*\*bold\*\*" result) "B tag should convert to **bold**")
-      (is (re-find #"and\*italic\*" result) "I tag should convert to *italic*"))))
+      (is (re-find #"Also \*\*bold\*\*" result) "B tag should convert to **bold**")
+      (is (re-find #"and \*italic\*" result) "I tag should convert to *italic*"))))
 
 (deftest test-lists-conversion
   (testing "Lists convert to Markdown lists"
@@ -452,7 +452,49 @@
   (testing "Handle nested formatting tags"
     (let [html-str "<html><body><p>This is <strong>bold with <em>nested italic</em> text</strong>.</p></body></html>"
           result (:markdown (html/extract-content html-str :format :markdown))]
-      (is (re-find #"\*\*bold with\*nested italic\*text\*\*" result) "Nested formatting should be preserved"))))
+      (is (re-find #"\*\*bold with \*nested italic\* text\*\*" result) "Nested formatting should be preserved"))))
+
+(deftest test-inline-element-spacing
+  (testing "Inline elements on separate lines preserve spacing"
+    (let [html-str "<p><em>Pretentious diction</em>
+. Words like
+<em>phenomenon</em>
+,
+<em>element</em>
+,
+<em>individual </em>
+(as noun),
+<em>objective</em>"
+          result (:markdown (html/extract-content html-str :format :markdown))]
+      (is (re-find #"\*Pretentious diction\*" result) "Em content should be italic")
+      (is (re-find #"Words like \*phenomenon\*" result) "Space before italic word")
+      (is (re-find #"\*phenomenon\* ," result) "Space after italic word before comma")
+      (is (re-find #", \*element\*" result) "Space after comma before italic word")
+      (is (re-find #"\*individual\*" result) "Trailing space inside em should move outside markers")
+      (is (re-find #"\(as noun\)" result) "Parenthetical text preserved")))
+  (testing "Adjacent inline elements without whitespace"
+    (let [result (:markdown (html/extract-content "<p><em>one</em><em>two</em></p>" :format :markdown))]
+      (is (= "*one**two*" (clojure.string/trim result)) "No space injected when source has none")))
+  (testing "Normal inline usage preserves spacing"
+    (let [result (:markdown (html/extract-content "<p>This is <em>italic</em> text.</p>" :format :markdown))]
+      (is (re-find #"This is \*italic\* text\." result) "Spaces around inline element preserved")))
+  (testing "Bold inline spacing"
+    (let [result (:markdown (html/extract-content "<p>A <strong>bold</strong> word.</p>" :format :markdown))]
+      (is (re-find #"A \*\*bold\*\* word\." result) "Spaces around bold element preserved"))))
+
+(deftest test-inline-marker-whitespace-movement
+  (testing "Leading space inside em moves outside markers"
+    (let [result (:markdown (html/extract-content "<p>word<em> italic</em> next</p>" :format :markdown))]
+      (is (re-find #"word \*italic\*" result) "Leading space should move outside *")))
+  (testing "Trailing space inside em moves outside markers"
+    (let [result (:markdown (html/extract-content "<p>prev <em>italic </em>word</p>" :format :markdown))]
+      (is (re-find #"\*italic\* word" result) "Trailing space should move outside *")))
+  (testing "Leading space inside strong moves outside markers"
+    (let [result (:markdown (html/extract-content "<p>word<strong> bold</strong> next</p>" :format :markdown))]
+      (is (re-find #"word \*\*bold\*\*" result) "Leading space should move outside **")))
+  (testing "Trailing space inside strong moves outside markers"
+    (let [result (:markdown (html/extract-content "<p>prev <strong>bold </strong>word</p>" :format :markdown))]
+      (is (re-find #"\*\*bold\*\* word" result) "Trailing space should move outside **"))))
 
 (deftest test-whitespace-handling
   (testing "Handle excessive whitespace correctly"
