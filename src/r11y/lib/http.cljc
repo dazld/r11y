@@ -1,12 +1,11 @@
 (ns r11y.lib.http
   #?(:bb (:require [babashka.http-client :as http])
-     :clj (:require [hato.client :as hato]
-                    [clojure.string :as str])))
+     :clj (:require [hato.client :as hato])))
 
 #?(:clj
    (defn- keywordize-headers [headers]
      (reduce-kv (fn [m k v]
-                  (assoc m (keyword (str/lower-case k)) v))
+                  (assoc m (keyword (.toLowerCase ^String k)) v))
                 {}
                 headers)))
 
