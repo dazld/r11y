@@ -2,14 +2,21 @@
   #?(:bb (:require [babashka.http-client :as http])
      :clj (:require [hato.client :as hato])))
 
-#?(:clj
-   (defn- keywordize-headers [headers]
-     (reduce-kv (fn [m k v]
-                  (assoc m (keyword (.toLowerCase ^String k)) v))
-                {}
-                headers)))
+(defn- keywordize-headers [headers]
+  (reduce-kv (fn [m k v]
+               (assoc m (keyword #?(:bb k :clj (.toLowerCase ^String k))) v))
+             {}
+             headers))
+
+(defn- normalize-opts [opts]
+  #?(:bb (if (= (:as opts) :byte-array)
+           (assoc opts :as :bytes)
+           opts)
+     :clj opts))
 
 (defn get-url [url opts]
-  #?(:bb (http/get url opts)
-     :clj (let [resp (hato/get url opts)]
-            (update resp :headers keywordize-headers))))
+  (let [opts (normalize-opts opts)]
+    #?(:bb (-> (http/get url opts)
+               (update :headers keywordize-headers))
+       :clj (-> (hato/get url opts)
+                (update :headers keywordize-headers)))))
