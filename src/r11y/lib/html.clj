@@ -1,7 +1,7 @@
 (ns r11y.lib.html
-  (:require [org.httpkit.client :as client]
-            [clojure.string :as str]
-            [clojure.data.json :as json])
+  (:require [r11y.lib.http :as http]
+            [r11y.lib.json :as json]
+            [clojure.string :as str])
   (:import (java.net URI)
            (java.io ByteArrayInputStream)
            [org.jsoup Jsoup]
@@ -309,7 +309,7 @@
            (seq json-ld-scripts)
            (let [json-text (.html (.first json-ld-scripts))]
              (when-not (str/blank? json-text)
-               (try (json/read-str json-text :key-fn keyword) (catch Exception _ nil))))))
+               (try (json/parse json-text) (catch Exception _ nil))))))
        (catch Exception _ nil)))
 
 (defn- get-json-ld-value
@@ -538,19 +538,17 @@
        (catch Exception _ nil)))
 
 (defn- fetch-url
-  "Fetch URL with common headers and return http-kit response."
+  "Fetch URL with common headers and return response map."
   [url]
-  @(client/request {:method :get
-                    :url url
-                    :as :byte-array
-                    :headers {"User-Agent" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.6 Safari/605.1.15"
-                              "Accept" "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
-                              "Accept-Encoding" "gzip, deflate"
-                              "Accept-Language" "en-GB,en;q=0.9"
-                              "Priority" "u=0, i"
-                              "Sec-Fetch-Dest" "document"
-                              "Sec-Fetch-Mode" "navigate"
-                              "Sec-Fetch-Site" "none"}}))
+  (http/get-url url {:as :byte-array
+                     :headers {"User-Agent" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.6 Safari/605.1.15"
+                               "Accept" "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+                               "Accept-Encoding" "gzip, deflate"
+                               "Accept-Language" "en-GB,en;q=0.9"
+                               "Priority" "u=0, i"
+                               "Sec-Fetch-Dest" "document"
+                               "Sec-Fetch-Mode" "navigate"
+                               "Sec-Fetch-Site" "none"}}))
 
 (defn extract-content-from-url
   "Extract main content from a URL. Returns clean HTML by default.
