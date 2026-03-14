@@ -30,6 +30,7 @@ $NATIVE_IMAGE \
   --features=clj_easy.graal_build_time.InitClojureClasses \
   --no-fallback \
   --report-unsupported-elements-at-runtime \
+  --enable-url-protocols=http,https \
   -H:ConfigurationFileDirectories=graal-config
 
 echo ""
