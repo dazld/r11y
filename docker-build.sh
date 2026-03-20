@@ -6,8 +6,12 @@ echo "Building native binary with Docker + GraalVM..."
 echo "This may take several minutes on first build..."
 echo ""
 
+# Resolve version from VERSION env var, git tag, or fallback to "dev"
+VERSION="${VERSION:-$(git describe --tags --always 2>/dev/null || echo "dev")}"
+echo "Version: $VERSION"
+
 # Build the Docker image
-docker build -t r11y-builder .
+docker build --build-arg VERSION="$VERSION" -t r11y-builder .
 
 # Create a temporary container to extract the binary
 CONTAINER_ID=$(docker create r11y-builder)

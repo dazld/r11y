@@ -25,10 +25,13 @@ RUN clojure -M -e "(binding [*compile-path* \"classes\"] (compile 'r11y.core))"
 # Build uberjar
 RUN clojure -X:uberjar
 
+ARG VERSION=dev
+
 # Build native image
 RUN native-image \
     -jar target/r11y.jar \
     -H:Name=r11y \
+    -Dr11y.version="$VERSION" \
     -H:+ReportExceptionStackTraces \
     --features=clj_easy.graal_build_time.InitClojureClasses \
     --no-fallback \

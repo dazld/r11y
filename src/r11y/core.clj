@@ -3,6 +3,8 @@
             [clojure.string :as str])
   (:gen-class))
 
+(def version (or (System/getProperty "r11y.version") "dev"))
+
 (defn print-usage
   []
   (println "Usage: r11y [options] <url>")
@@ -12,6 +14,7 @@
   (println "Options:")
   (println "  -l, --link-density N   Link density threshold 0-1 (default: 0.5)")
   (println "  -m, --with-metadata    Include YAML frontmatter with metadata")
+  (println "  -v, --version          Show version")
   (println "  -h, --help             Show this help message")
   (println "")
   (println "Example:")
@@ -28,6 +31,7 @@
       (let [arg (first args)
             rest-args (rest args)]
         (cond (or (= arg "-h") (= arg "--help")) (assoc opts :help true)
+          (or (= arg "-v") (= arg "--version")) (assoc opts :version true)
           (or (= arg "-m") (= arg "--with-metadata")) (recur rest-args (assoc opts :with-metadata true))
           (or (= arg "-l") (= arg "--link-density"))
           (if (empty? rest-args)
@@ -50,7 +54,10 @@
 (defn -main
   [& args]
   (let [opts (parse-args args)]
-    (cond (:help opts) (do (print-usage) (System/exit 0))
+    (cond (:version opts) (do (println (str "r11y " version))
+                             (println "https://github.com/dazld/r11y/releases")
+                             (System/exit 0))
+      (:help opts) (do (print-usage) (System/exit 0))
       (:error opts) (do
                       (println "Error:" (:error opts))
                       (println)

@@ -16,6 +16,10 @@ echo ""
 echo "Building native image with GraalVM..."
 echo "This may take several minutes..."
 
+# Resolve version from VERSION env var, git tag, or fallback to "dev"
+VERSION="${VERSION:-$(git describe --tags --always 2>/dev/null || echo "dev")}"
+echo "Version: $VERSION"
+
 # Find native-image (prefer $JAVA_HOME, fall back to PATH)
 if [ -n "$JAVA_HOME" ] && [ -x "$JAVA_HOME/bin/native-image" ]; then
   NATIVE_IMAGE="$JAVA_HOME/bin/native-image"
@@ -26,6 +30,7 @@ fi
 $NATIVE_IMAGE \
   -jar target/r11y.jar \
   -H:Name=r11y \
+  -Dr11y.version="$VERSION" \
   -H:+ReportExceptionStackTraces \
   --features=clj_easy.graal_build_time.InitClojureClasses \
   --no-fallback \
