@@ -93,6 +93,24 @@
   (doseq [el (.select doc "[style*='display'][style*='none']")]
     (when-let [style (.attr el "style")]
       (when (.find (.matcher display-none style)) (.remove el))))
+  ;; Remove image maps (navigation, not content)
+  (doseq [elem (.select doc "map, area")] (.remove elem))
+  ;; Remove images used as image map triggers
+  (doseq [^Element elem (.select doc "img[usemap]")] (.remove elem))
+  ;; Remove spacer/transparent images (width or height of 1)
+  (doseq [^Element elem (.select doc "img")]
+    (let [w (.attr elem "width")
+          h (.attr elem "height")
+          src (.attr elem "src")]
+      (when (or (= w "1") (= h "1")
+                (re-find #"(?i)trans[_-]|spacer|blank\." src))
+        (.remove elem))))
+  ;; Remove duplicate images — repeated images are decorative/UI chrome
+  (let [imgs (.select doc "img[src]")
+        freq (frequencies (map #(.attr ^Element % "src") imgs))]
+    (doseq [^Element elem imgs]
+      (when (> (get freq (.attr elem "src") 0) 2)
+        (.remove elem))))
   doc)
 
 (defn prune-unwanted-nodes
@@ -117,16 +135,29 @@
 (defn clean-empty-elements
   "Remove empty elements."
   [^Document doc]
-  (doseq [^Element elem (.select doc "p, div, li, td, section, ul, ol, h1, h2, h3, h4, h5, h6")]
+  (doseq [^Element elem (.select doc "p, div, li, td, section, article, ul, ol, h1, h2, h3, h4, h5, h6")]
     (when (and (str/blank? (get-inner-text elem))
                (empty? (.children elem)))
       (.remove elem)))
   doc)
 
+(defn- select-largest
+  "Select the element with the most text content from a CSS selector.
+   Returns nil if no elements match."
+  [^Document doc ^String selector]
+  (let [elements (.select doc selector)]
+    (when (pos? (.size elements))
+      (reduce (fn [best ^Element el]
+                (if (> (count (.text el)) (count (.text ^Element best)))
+                  el
+                  best))
+              (.first elements)
+              elements))))
+
 (defn get-main-content-element
   "Try to find the main content element."
   [^Document doc]
-  (or (.selectFirst doc "article")
+  (or (select-largest doc "article")
       (.selectFirst doc "[itemprop=articleBody]")
       (.selectFirst doc "[role=main]")
       (.selectFirst doc "main")
@@ -157,6 +188,16 @@
                                                 (when (str/ends-with? collapsed " ") " "))))))
          (instance? Element node) (element-to-markdown node depth preserve-whitespace?)
          :else "")))
+
+(defn- layout-table?
+  "Detect tables used for layout rather than data.
+   Heuristic: no <th> elements AND (border=0 or contains block-level content)."
+  [^Element table]
+  (let [has-th? (pos? (.size (.select table "th")))
+        border-zero? (= "0" (.attr table "border"))
+        has-block-content? (pos? (.size (.select table "table, p, br, font, img, map, form")))]
+    (and (not has-th?)
+         (or border-zero? has-block-content?))))
 
 (defn- table-to-markdown
   "Convert an HTML table to Markdown table format"
@@ -252,7 +293,11 @@
        "ol" (str content "\n")
        "li" (str (apply str (repeat depth "  ")) "- " content "\n")
        "blockquote" (str "> " (str/replace content #"\n" "\n> ") "\n\n")
-       "table" (table-to-markdown element)
+       "table" (if (layout-table? element) content (table-to-markdown element))
+       "tr" content
+       "td" content
+       "tbody" content
+       "thead" content
        "div" content
        "span" content
        "article" content
@@ -477,6 +522,8 @@
               (Jsoup/parse ^String html-input))
         metadata (when with-metadata (extract-metadata doc base-url))
         frontmatter (when with-metadata (metadata-to-frontmatter metadata))
+        ;; Measure raw body text before cleaning for coverage heuristic
+        raw-body-text-len (count (.text (.body doc)))
         ;; First pass: aggressive cleaning
         cleaned-doc-pass1 (-> (.clone doc)
                               (cond-> base-url (resolve-and-classify-links base-url))
@@ -486,15 +533,27 @@
                               clean-empty-elements)
         main-element-pass1 (get-main-content-element cleaned-doc-pass1)
         ;; Second pass (conservative) if first pass fails
-        main-element (if (< (count (.text main-element-pass1)) 200)
-                       (let [cleaned-doc-pass2 (-> (.clone doc)
-                                                   (cond-> base-url (resolve-and-classify-links base-url))
-                                                   clean-document
-                                                   ;; Skip prune-unwanted-nodes
-                                                   (clean-by-link-density link-density-threshold)
-                                                   clean-empty-elements)]
-                         (get-main-content-element cleaned-doc-pass2))
-                       main-element-pass1)
+        main-element-pass2 (when (< (count (.text main-element-pass1)) 200)
+                             (let [cleaned-doc-pass2 (-> (.clone doc)
+                                                         (cond-> base-url (resolve-and-classify-links base-url))
+                                                         clean-document
+                                                         ;; Skip prune-unwanted-nodes
+                                                         (clean-by-link-density link-density-threshold)
+                                                         clean-empty-elements)]
+                               (get-main-content-element cleaned-doc-pass2)))
+        main-element (or main-element-pass2 main-element-pass1)
+        ;; Coverage heuristic: if we captured less than 30% of the raw body text,
+        ;; we likely missed content — fall back to the cleaned body
+        main-element (if (and (pos? raw-body-text-len)
+                              (< (/ (double (count (.text main-element)))
+                                    raw-body-text-len)
+                                 0.3))
+                       (let [cleaned-body (-> (.clone doc)
+                                              (cond-> base-url (resolve-and-classify-links base-url))
+                                              clean-document
+                                              clean-empty-elements)]
+                         (.body cleaned-body))
+                       main-element)
 
         main-content-html (.html main-element)
         ;; Extract links from main content
