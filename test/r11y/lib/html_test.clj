@@ -610,3 +610,25 @@
           readme-result (html/extract-github-readme html-str)]
       (is (some? readme-result))
       (is (re-find #"README" readme-result)))))
+
+(deftest test-role-img-pruning
+  (testing "role=img elements are removed from extraction"
+    (let [html-str "<html><body><div role=\"img\" aria-label=\"decorative\"><svg xmlns=\"http://www.w3.org/2000/svg\" width=\"100\" height=\"100\"><circle cx=\"50\" cy=\"50\" r=\"40\"/></svg><span>decorative text</span></div><p>Main content</p></body></html>"
+          result (html/extract-content-from-url
+                  "https://example.com/page"
+                  :content (.getBytes html-str "UTF-8")
+                  :content-type "text/html"
+                  :with-metadata false)]
+      (is (re-find #"Main content" (:markdown result)) "Should contain main content")
+      (is (not (re-find #"decorative text" (:markdown result))) "Should not contain role=img text")))
+
+  (testing "role=img SVG is removed even in coverage fallback path"
+    (let [html-str "<html><body><div role=\"img\"><svg xmlns=\"http://www.w3.org/2000/svg\"><path d=\"M10 10 H90 V90 H10 Z\"/></svg></div><div role=\"img\"><svg xmlns=\"http://www.w3.org/2000/svg\"><circle cx=\"50\" cy=\"50\" r=\"40\"/></svg></div><p>Only paragraph</p></body></html>"
+          result (html/extract-content-from-url
+                  "https://example.com/page"
+                  :content (.getBytes html-str "UTF-8")
+                  :content-type "text/html"
+                  :with-metadata false)]
+      (is (re-find #"Only paragraph" (:markdown result)) "Should contain paragraph")
+      (is (not (re-find #"<svg" (:markdown result))) "Should not contain SVG tags")
+      (is (not (re-find #"role=" (:markdown result))) "Should not contain role attribute"))))

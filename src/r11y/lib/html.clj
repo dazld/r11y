@@ -87,7 +87,7 @@
   (doseq [elem (.select doc "form")]
     (when (< (count (.text elem)) 200)
       (.remove elem)))
-  (doseq [elem (.select doc "[role=navigation], [role=banner], [role=complementary], [role=search], [role=none], [role=presentation], [aria-hidden=true]")]
+  (doseq [elem (.select doc "[role=navigation], [role=banner], [role=complementary], [role=search], [role=img], [role=none], [role=presentation], [aria-hidden=true]")]
     (.remove elem))
   (doseq [el (.select doc "[style*='display'][style*='none']")]
     (when-let [style (.attr el "style")]
@@ -116,11 +116,16 @@
   "Remove elements that are unlikely to be part of the main content."
   [^Document doc]
   (doseq [^Element elem (.select doc "*")]
-    (let [class-id (str (.className elem) " " (.id elem))]
+    (let [class-id (str (.className elem) " " (.id elem))
+          role (.attr elem "role")]
       (when
-       (and (re-find unlikely-candidates-pattern class-id)
-            (not (re-find positive-patterns class-id))
-            (< (count (.text elem)) 200))
+       (or
+         ;; Check role attribute for decorative/content-hidden roles
+        (and role (re-find #"^(img|presentation|none|button)$" role))
+         ;; Check class/id patterns
+        (and (re-find unlikely-candidates-pattern class-id)
+             (not (re-find positive-patterns class-id))
+             (< (count (.text elem)) 200)))
         (.remove elem))))
   doc)
 
