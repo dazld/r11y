@@ -8,7 +8,6 @@
            [org.jsoup.nodes Document Element Node TextNode]
            [java.util.regex Pattern]))
 
-
 (def PRESERVE_START_TOKEN "__PRESERVE_ae0d3c51_START__")
 (def PRESERVE_END_TOKEN "__PRESERVE_ae0d3c51_END__")
 
@@ -28,8 +27,8 @@
 ;; Regex patterns for cleaning (based on trafilatura/readability)
 (def unlikely-candidates-pattern
   (Pattern/compile
-    "combx|comment|community|disqus|extra|foot|header|menu|remark|rss|shoutbox|sidebar|sponsor|ad-break|agegate|pagination|pager|popup|tweet|twitter|newsletter|social|share"
-    Pattern/CASE_INSENSITIVE))
+   "combx|comment|community|disqus|extra|foot|header|menu|remark|rss|shoutbox|sidebar|sponsor|ad-break|agegate|pagination|pager|popup|tweet|twitter|newsletter|social|share"
+   Pattern/CASE_INSENSITIVE))
 
 (def positive-patterns
   (Pattern/compile "article|body|content|entry|hentry|main|page|post|text|blog|story" Pattern/CASE_INSENSITIVE))
@@ -66,8 +65,8 @@
         ;; Internal links are ignored for link density calculation
         (when (= "a" (.tagName elem))
           (cond-> elem
-                  doc-local-link? (.attr "--mnp-doc-local-link" "true")
-                  true (.attr "--mnp-cleaning--data-link-type" (if is-internal? "internal" "external"))))))
+            doc-local-link? (.attr "--mnp-doc-local-link" "true")
+            true (.attr "--mnp-cleaning--data-link-type" (if is-internal? "internal" "external"))))))
     ;; Process all src attributes (images, scripts, iframes, etc)
     (doseq [elem (.select doc "[src]")]
       (let [src (.attr elem "src")
@@ -82,8 +81,8 @@
   "Initial cleaning of the document."
   [^Document doc]
   (doseq [elem (.select
-                 doc
-                 "script, style, noscript, iframe, object, embed, footer, header, nav, head link, aside, svg, canvas, applet, input, button, select, textarea, label, fieldset, legend, dialog")]
+                doc
+                "script, style, noscript, iframe, object, embed, footer, header, nav, head link, aside, svg, canvas, applet, input, button, select, textarea, label, fieldset, legend, dialog")]
     (.remove elem))
   (doseq [elem (.select doc "form")]
     (when (< (count (.text elem)) 200)
@@ -119,9 +118,9 @@
   (doseq [^Element elem (.select doc "*")]
     (let [class-id (str (.className elem) " " (.id elem))]
       (when
-        (and (re-find unlikely-candidates-pattern class-id)
-             (not (re-find positive-patterns class-id))
-             (< (count (.text elem)) 200))
+       (and (re-find unlikely-candidates-pattern class-id)
+            (not (re-find positive-patterns class-id))
+            (< (count (.text elem)) 200))
         (.remove elem))))
   doc)
 
@@ -223,21 +222,19 @@
                     (let [all-rows (.select table "tr")]
                       (if (seq header-rows) (rest all-rows) all-rows)))
         header (when
-                 (seq header-rows)
+                (seq header-rows)
                  (process-row (first header-rows)))
         num-cols (when
-                   header
+                  header
                    (count (concat (.select (first header-rows) "th") (.select (first header-rows) "td"))))
         separator (when num-cols (str "|" (str/join "|" (repeat num-cols " --- ")) "|"))
         body (map process-row body-rows)]
     (str/join "\n"
               (concat (when
-                        header
+                       header
                         [header separator])
                       body
                       ["\n"]))))
-
-
 
 (defn- wrap-inline-marker
   "Wrap content with markdown markers, moving leading/trailing whitespace outside"
@@ -305,7 +302,6 @@
        "main" content
        content))))
 
-
 (defn html-to-markdown
   "Convert HTML string to markdown"
   [html]
@@ -351,8 +347,8 @@
   [^Document doc]
   (try (let [json-ld-scripts (.select doc "script[type='application/ld+json']")]
          (when
-           (seq json-ld-scripts)
-           (let [json-text (.html (.first json-ld-scripts))]
+          (seq json-ld-scripts)
+           (let [json-text (.html (first json-ld-scripts))]
              (when-not (str/blank? json-text)
                (try (json/parse json-text) (catch Exception _ nil))))))
        (catch Exception _ nil)))
@@ -361,7 +357,7 @@
   "Safely extract value from JSON-LD data"
   [json-ld & keys]
   (when
-    json-ld
+   json-ld
     (let [val (get-in json-ld keys)]
       (cond
         (string? val) val
@@ -397,16 +393,16 @@
   "Extract date from URL patterns like /2024/03/15/"
   [url]
   (when
-    url
+   url
     (let [patterns [#"/(\d{4})/(\d{2})/(\d{2})/" ; /2024/03/15/
                     #"/(\d{4})-(\d{2})-(\d{2})"  ; /2024-03-15
                     #"/(\d{4})(\d{2})(\d{2})"]]  ; /20240315
       (some
-        (fn [pattern]
-          (when-let [match (re-find pattern url)]
-            (let [[_ year month day] match]
-              (str year "-" month "-" day))))
-        patterns))))
+       (fn [pattern]
+         (when-let [match (re-find pattern url)]
+           (let [[_ year month day] match]
+             (str year "-" month "-" day))))
+       patterns))))
 
 (defn- extract-site-icon
   "Extract the best available site icon URL"
@@ -575,8 +571,8 @@
                 :links    links
                 :images   images
                 :metadata (or metadata {})}
-               {:html main-content-html
-                :main-element main-element})))
+      {:html main-content-html
+       :main-element main-element})))
 
 (defn normalize-github-url
   "Convert GitHub blob URLs to raw URLs for better content extraction"
@@ -592,7 +588,7 @@
   (try (let [doc (Jsoup/parse html-string)
              ;; GitHub embeds README in an article tag with class markdown-body
              readme-article (.select doc "article.markdown-body")
-             readme-html (when (pos? (.size readme-article)) (.html (.first readme-article)))]
+             readme-html (when (pos? (.size readme-article)) (.html (first readme-article)))]
          readme-html)
        (catch Exception _ nil)))
 
@@ -653,10 +649,10 @@
         fallback-extract (fn []
                            (if metadata
                              (let [result (extract-content extraction-body
-                                                          :base-url normalized-url
-                                                          :format format
-                                                          :link-density-threshold link-density-threshold
-                                                          :with-metadata false)]
+                                                           :base-url normalized-url
+                                                           :format format
+                                                           :link-density-threshold link-density-threshold
+                                                           :with-metadata false)]
                                (assoc result
                                       :markdown (str frontmatter (:markdown result))
                                       :metadata metadata))
