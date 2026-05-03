@@ -3,7 +3,6 @@
             [r11y.lib.html :as html])
   (:import [org.jsoup Jsoup]))
 
-
 (deftest test-link-and-image-deduplication
   (testing "Links and images are deduplicated by URL"
     (let [html-str "<html><body><a href='/page1'>Page 1</a><a href='/page1'>Page 1 again</a><img src='/img1.jpg' alt=''><img src='/img1.jpg' alt='again'></body></html>"
@@ -17,7 +16,6 @@
           result (html/extract-content html-str :base-url "https://example.com")]
       (is (= 1 (count (:links result))) "Anchor links should be filtered out")
       (is (= "https://example.com/page1" (:url (first (:links result)))) "Only non-anchor links should remain"))))
-
 
 (deftest canonical-url
   (testing "Canonical URLs are found and shown, and not canonical if no match"
@@ -595,3 +593,20 @@
           density (html/get-link-density body)]
       (is (> density 0.5) "High link density should be detected")
       (is (< density 1.0) "Link density should not exceed 1.0"))))
+
+(deftest test-json-ld-extraction
+  (testing "JSON-LD is extracted from script tags"
+    (let [html-str "<html><head><script type=\"application/ld+json\">{\"@context\":\"https://schema.org\",\"@type\":\"Article\",\"headline\":\"Test\"}</script></head><body><p>Content</p></body></html>"
+          result (html/extract-content-from-url
+                  "https://example.com/page"
+                  :content (.getBytes html-str "UTF-8")
+                  :content-type "text/html"
+                  :with-metadata true)]
+      (is (= "Test" (get-in result [:metadata :title]))))))
+
+(deftest test-github-readme-extraction
+  (testing "GitHub README is parsed from article.markdown-body"
+    (let [html-str "<html><body><article class=\"markdown-body\"><h1>README</h1><p>Content</p></article></body></html>"
+          readme-result (html/extract-github-readme html-str)]
+      (is (some? readme-result))
+      (is (re-find #"README" readme-result)))))
