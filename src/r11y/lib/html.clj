@@ -77,6 +77,12 @@
     doc))
 
 ;; Cleaning pipeline functions
+(defn- rename-tag!
+  "Rename element's tag and clear the now-redundant role attribute."
+  [^Element elem ^String new-tag]
+  (.tagName elem new-tag)
+  (.removeAttr elem "role"))
+
 (defn standardize-semantic-divs
   "Convert role-based semantic divs to their proper HTML tags so the
    markdown converter sees them as block content. Modern React/Next.js
@@ -84,11 +90,11 @@
    that JSoup serializes as plain divs without semantic meaning."
   [^Document doc]
   (doseq [^Element elem (.select doc "div[role=paragraph]")]
-    (.tagName elem "p"))
+    (rename-tag! elem "p"))
   (doseq [^Element elem (.select doc "div[role=list]")]
-    (.tagName elem "ul"))
+    (rename-tag! elem "ul"))
   (doseq [^Element elem (.select doc "div[role=listitem]")]
-    (.tagName elem "li"))
+    (rename-tag! elem "li"))
   doc)
 
 (defn clean-document
@@ -388,14 +394,15 @@
 
 (defn- decode-html-entities
   "Decode HTML entities commonly found in JSON-LD strings (&amp;, &#39;, etc.).
-   Single-pass — each entity is decoded exactly once."
+   Single-pass — each entity is decoded exactly once. Numeric entities use
+   Character/toString so non-BMP code points (emoji, etc.) decode correctly."
   [^String s]
   (let [named {"amp" "&" "lt" "<" "gt" ">" "quot" "\"" "apos" "'" "nbsp" " "}]
     (str/replace s #"&(?:#(\d+)|#[xX]([0-9a-fA-F]+)|([a-zA-Z][a-zA-Z0-9]*));"
                  (fn [[whole dec hex name]]
                    (cond
-                     dec (try (str (char (Integer/parseInt dec))) (catch Exception _ whole))
-                     hex (try (str (char (Integer/parseInt hex 16))) (catch Exception _ whole))
+                     dec (try (Character/toString (Integer/parseInt dec)) (catch Exception _ whole))
+                     hex (try (Character/toString (Integer/parseInt hex 16)) (catch Exception _ whole))
                      name (or (named name) whole)
                      :else whole)))))
 

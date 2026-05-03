@@ -842,7 +842,20 @@
                   :content (.getBytes html-str "UTF-8")
                   :content-type "text/html"
                   :with-metadata true)]
-      (is (= "Commented Title" (get-in result [:metadata :title]))))))
+      (is (= "Commented Title" (get-in result [:metadata :title])))))
+
+  (testing "Numeric entities outside the BMP decode to a valid surrogate pair"
+    (let [html-str (str "<html><head><script type=\"application/ld+json\">"
+                        ;; &#128512; = 😀 (U+1F600), outside BMP
+                        "{\"@type\":\"Article\",\"headline\":\"Hello &#128512; world\"}"
+                        "</script></head><body><p>x</p></body></html>")
+          result (html/extract-content-from-url
+                  "https://example.com/page"
+                  :content (.getBytes html-str "UTF-8")
+                  :content-type "text/html"
+                  :with-metadata true)]
+      (is (= "Hello 😀 world" (get-in result [:metadata :title]))
+          "Code point > 0xFFFF should produce a valid surrogate pair, not a truncated char"))))
 
 (deftest test-semantic-div-standardization
   (testing "div[role=paragraph] is treated as a paragraph in output"
