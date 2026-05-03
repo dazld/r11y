@@ -1,11 +1,13 @@
 # r11y
 
-A fast, GraalVM-compiled CLI tool for extracting readable content from web pages as Markdown.
+A lightning fast, GraalVM-compiled CLI tool for extracting readable content from web pages as Markdown.
+
+`r11y` as in `readability` - or "oh rlly?" if you're ancient and remember the terrible owl meme.
 
 ## Features
 
 - Extract main content from any URL as clean Markdown
-- Preserves whitespace in preformatted blocks
+- **Preserves whitespace** in preformatted blocks
 - Rich metadata extraction with YAML frontmatter (title, author, date, description, canonical URL, hero image, favicon, sitename)
 - JSON-LD structured data support, including `@graph` walking and multi-script preference for article-typed objects
 - Markdown content negotiation — sends `Accept: text/markdown` and recognises markdown bodies even when servers mis-label them as `text/html` (e.g. Cloudflare-fronted docs)
@@ -13,15 +15,8 @@ A fast, GraalVM-compiled CLI tool for extracting readable content from web pages
 - Removes decorative SVGs, spacer images, layout tables, and duplicated UI chrome
 - GitHub-optimized extraction (README files, blob content)
 - Configurable link density threshold for content filtering
+- Babashka-compatible — usable from `bb` scripts via `:git/tag` deps, no GraalVM required
 - Fast startup with GraalVM native compilation (~40ms)
-
-## Notes on repo
-
-This is a personal tool I've been using in my own projects - I specifically wanted a way to get URLs without clobbering the whitespace,
-and I couldn't find a tool that did that. I've used and recommend trafilatura before - but given it collapsed whitespace, and was very much
-a python project, I wanted to explore building a Clojure & Graal tool to do similar, and here we go.
-
-It's not as battle-tested as other more mature extraction tools, but PRs are welcome to improve this.
 
 ## Installation
 
@@ -157,6 +152,16 @@ clj -M -m r11y.core https://example.com
 ```clojure
 clj -e "(require '[r11y.lib.html :as html]) (println (html/extract-content-from-url \"https://clojure.org\" :format :markdown))"
 ```
+
+### Use from a babashka script
+
+```bash
+bb -Sdeps '{:deps {io.github.dazld/r11y {:git/tag "v1.0.5" :git/sha "aabc910"}}}' \
+  -e '(require (quote [r11y.lib.html :as html]))
+      (println (:markdown (html/extract-content-from-url "https://example.com" :format :markdown)))'
+```
+
+No GraalVM required — bb resolves the dep, downloads JSoup transitively, and runs the extractor. Useful for one-off scripts where you don't want to install the native binary.
 
 ## How it works
 
