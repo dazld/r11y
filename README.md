@@ -156,7 +156,7 @@ clj -e "(require '[r11y.lib.html :as html]) (println (html/extract-content-from-
 ### Use from a babashka script
 
 ```bash
-bb -Sdeps '{:deps {io.github.dazld/r11y {:git/tag "v1.0.5" :git/sha "aabc910"}}}' \
+bb -Sdeps '{:deps {io.github.dazld/r11y {:git/tag "v1.0.6" :git/sha "87a3baa"}}}' \
   -e '(require (quote [r11y.lib.html :as html]))
       (println (:markdown (html/extract-content-from-url "https://example.com" :format :markdown)))'
 ```
