@@ -790,3 +790,56 @@
                   :content-type "text/html"
                   :with-metadata true)]
       (is (= "Acme News" (get-in result [:metadata :sitename]))))))
+
+(deftest test-json-ld-graph-walking
+  (testing "@graph array — Article object inside is preferred over WebSite"
+    (let [html-str (str "<html><head><script type=\"application/ld+json\">"
+                        "{\"@context\":\"https://schema.org\","
+                        " \"@graph\":["
+                        "  {\"@type\":\"WebSite\",\"name\":\"Site\"},"
+                        "  {\"@type\":\"Article\",\"headline\":\"Article Title\",\"author\":{\"name\":\"Jane\"}}]}"
+                        "</script></head><body><p>x</p></body></html>")
+          result (html/extract-content-from-url
+                  "https://example.com/page"
+                  :content (.getBytes html-str "UTF-8")
+                  :content-type "text/html"
+                  :with-metadata true)]
+      (is (= "Article Title" (get-in result [:metadata :title])))
+      (is (= "Jane" (get-in result [:metadata :author])))))
+
+  (testing "Multiple JSON-LD scripts — Article-typed one is preferred"
+    (let [html-str (str "<html><head>"
+                        "<script type=\"application/ld+json\">{\"@type\":\"Organization\",\"name\":\"Org\"}</script>"
+                        "<script type=\"application/ld+json\">{\"@type\":\"NewsArticle\",\"headline\":\"News Title\"}</script>"
+                        "</head><body><p>x</p></body></html>")
+          result (html/extract-content-from-url
+                  "https://example.com/page"
+                  :content (.getBytes html-str "UTF-8")
+                  :content-type "text/html"
+                  :with-metadata true)]
+      (is (= "News Title" (get-in result [:metadata :title])))))
+
+  (testing "HTML entities in JSON-LD strings are decoded"
+    (let [html-str (str "<html><head><script type=\"application/ld+json\">"
+                        "{\"@type\":\"Article\",\"headline\":\"Tom &amp; Jerry &#39;Best Of&#39;\"}"
+                        "</script></head><body><p>x</p></body></html>")
+          result (html/extract-content-from-url
+                  "https://example.com/page"
+                  :content (.getBytes html-str "UTF-8")
+                  :content-type "text/html"
+                  :with-metadata true)]
+      (is (= "Tom & Jerry 'Best Of'" (get-in result [:metadata :title])))))
+
+  (testing "JSON-LD with /* block */ and // line comments still parses"
+    (let [html-str (str "<html><head><script type=\"application/ld+json\">"
+                        "/* leading comment */\n"
+                        "{\"@type\":\"Article\",\n"
+                        "// inline comment\n"
+                        " \"headline\":\"Commented Title\"}"
+                        "</script></head><body><p>x</p></body></html>")
+          result (html/extract-content-from-url
+                  "https://example.com/page"
+                  :content (.getBytes html-str "UTF-8")
+                  :content-type "text/html"
+                  :with-metadata true)]
+      (is (= "Commented Title" (get-in result [:metadata :title]))))))
