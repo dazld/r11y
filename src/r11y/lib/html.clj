@@ -367,15 +367,88 @@
       (if (valid-metadata-value? v) v ""))
     ""))
 
+(def ^:private json-ld-primary-types
+  #{"Article" "NewsArticle" "BlogPosting" "ScholarlyArticle"
+    "TechArticle" "Report" "WebPage" "AboutPage"})
+
+(defn- decode-html-entities
+  "Decode HTML entities commonly found in JSON-LD strings (&amp;, &#39;, etc.).
+   Single-pass — each entity is decoded exactly once."
+  [^String s]
+  (let [named {"amp" "&" "lt" "<" "gt" ">" "quot" "\"" "apos" "'" "nbsp" " "}]
+    (str/replace s #"&(?:#(\d+)|#[xX]([0-9a-fA-F]+)|([a-zA-Z][a-zA-Z0-9]*));"
+                 (fn [[whole dec hex name]]
+                   (cond
+                     dec (try (str (char (Integer/parseInt dec))) (catch Exception _ whole))
+                     hex (try (str (char (Integer/parseInt hex 16))) (catch Exception _ whole))
+                     name (or (named name) whole)
+                     :else whole)))))
+
+(defn- decode-entities-deep
+  "Recursively decode HTML entities in all string values of a parsed JSON structure."
+  [val]
+  (cond
+    (string? val) (decode-html-entities val)
+    (map? val) (into {} (map (fn [[k v]] [k (decode-entities-deep v)]) val))
+    (sequential? val) (mapv decode-entities-deep val)
+    :else val))
+
+(defn- strip-json-comments
+  "Strip /* */ block comments and // line comments. Sites occasionally serve
+   non-strict JSON-LD with embedded comments; this is best-effort, not a
+   full JSON parser."
+  [^String s]
+  (-> s
+      (str/replace #"(?s)/\*.*?\*/" "")
+      (str/replace #"(?m)^\s*//.*$" "")))
+
+(defn- flatten-graph
+  "Expand a JSON-LD value into a flat list of objects: a top-level @graph
+   array becomes its items; a sequential becomes its elements (recursively)."
+  [parsed]
+  (cond
+    (map? parsed) (if-let [g (get parsed (keyword "@graph"))]
+                    (vec g)
+                    [parsed])
+    (sequential? parsed) (vec (mapcat flatten-graph parsed))
+    :else []))
+
+(defn- json-ld-types
+  "Return the set of @type values for an item (handles string or array)."
+  [item]
+  (let [t (get item (keyword "@type"))]
+    (cond
+      (string? t) #{t}
+      (sequential? t) (set t)
+      :else #{})))
+
+(defn- pick-primary-json-ld
+  "Choose the best object from a flat list of JSON-LD items: prefer one
+   whose @type is an article-like type; fall back to the first item."
+  [items]
+  (or (first (filter (fn [item]
+                       (and (map? item)
+                            (some json-ld-primary-types (json-ld-types item))))
+                     items))
+      (first (filter map? items))))
+
 (defn- extract-json-ld
-  "Extract and parse JSON-LD structured data"
+  "Extract and parse JSON-LD structured data. Reads all script tags,
+   strips JSON comments, flattens @graph, prefers Article-typed objects,
+   decodes HTML entities recursively in the chosen primary."
   [^Document doc]
-  (try (let [json-ld-scripts (.select doc "script[type='application/ld+json']")]
-         (when (seq json-ld-scripts)
-           (let [json-text (.html (first json-ld-scripts))]
-             (when-not (str/blank? json-text)
-               (try (json/parse json-text) (catch Exception _ nil))))))
-       (catch Exception _ nil)))
+  (try
+    (let [scripts (.select doc "script[type='application/ld+json']")
+          parsed (->> scripts
+                      (keep (fn [^Element script]
+                              (let [text (.html script)]
+                                (when-not (str/blank? text)
+                                  (try (json/parse (strip-json-comments text))
+                                       (catch Exception _ nil)))))))
+          flattened (vec (mapcat flatten-graph parsed))
+          primary (pick-primary-json-ld flattened)]
+      (when primary (decode-entities-deep primary)))
+    (catch Exception _ nil)))
 
 (defn- get-json-ld-value
   "Safely extract value from JSON-LD data. Rejects placeholder values."
