@@ -139,6 +139,24 @@ image: https://media.wired.com/photos/.../NeuralIntelligence-crSamanthaMash-Lede
 
 `icon` is the site favicon (largest available, Apple touch icon preferred). `image` is the article hero / social-card image (`og:image` / `twitter:image` / JSON-LD `image`).
 
+## Performance
+
+Quick comparison against three readability extractors on representative URLs. 5 runs each, wall-clock seconds (mean ± stdev):
+
+| URL | r11y | [defuddle][def] | [trafilatura][trf] | [readability-rust][rdr] |
+|-----|------|-----------------|--------------------|-------------------------|
+| Long essay (Orwell, ~8k words) | **0.43 ± 0.09** | 0.74 ± 0.18 | 0.99 ± 0.14 | 0.57 ± 0.14 |
+| Docs page (Cloudflare)         | **0.26 ± 0.06** | 0.54 ± 0.02 | 0.53 ± 0.01 | 0.36 ± 0.04 |
+| Next.js landing page           | 0.30 ± 0.04     | 0.63 ± 0.04 | 0.52 ± 0.03 | **0.27 ± 0.05** |
+
+r11y is consistently **1.5–2×** faster than the typical Node and Python alternatives. Against `readability-rust` r11y is ahead on larger pages, roughly tied on short ones.
+
+Wall-clock includes the network fetch, so the processing-time gap is wider than the table shows. Network variance dominates the stdev. `readability-rust` doesn't fetch URLs natively and was benchmarked as `curl URL | readability-rust -i - -f text`.
+
+[def]: https://github.com/kepano/defuddle
+[trf]: https://trafilatura.readthedocs.io/
+[rdr]: https://github.com/dreampuf/readability-rust
+
 ## Development
 
 ### Run with Clojure CLI
