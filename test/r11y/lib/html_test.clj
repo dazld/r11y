@@ -741,3 +741,32 @@
       (is (= "https://example.com/social.png" (get-in result [:metadata :image])))
       (is (str/blank? (get-in result [:metadata :icon]))
           "icon should not be populated from upstream image"))))
+
+(deftest test-placeholder-metadata-filter
+  (testing "Unresolved template literals fall through to next fallback"
+    (let [html-str "<html><head><title>{page.title}</title><meta property=\"og:title\" content=\"Real Title\"></head><body><p>x</p></body></html>"
+          result (html/extract-content-from-url
+                  "https://example.com/page"
+                  :content (.getBytes html-str "UTF-8")
+                  :content-type "text/html"
+                  :with-metadata true)]
+      (is (= "Real Title" (get-in result [:metadata :title]))
+          "Template-literal title should be rejected, og:title used")))
+
+  (testing "Anchor-style placeholders are rejected"
+    (let [html-str "<html><head><meta name=\"author\" content=\"#author.fullName\"><meta property=\"article:author\" content=\"Jane Doe\"></head><body><p>x</p></body></html>"
+          result (html/extract-content-from-url
+                  "https://example.com/page"
+                  :content (.getBytes html-str "UTF-8")
+                  :content-type "text/html"
+                  :with-metadata true)]
+      (is (= "Jane Doe" (get-in result [:metadata :author])))))
+
+  (testing "Strings without letters or digits are rejected"
+    (let [html-str "<html><head><meta name=\"description\" content=\". - .\"><meta property=\"og:description\" content=\"Real description\"></head><body><p>x</p></body></html>"
+          result (html/extract-content-from-url
+                  "https://example.com/page"
+                  :content (.getBytes html-str "UTF-8")
+                  :content-type "text/html"
+                  :with-metadata true)]
+      (is (= "Real description" (get-in result [:metadata :description]))))))

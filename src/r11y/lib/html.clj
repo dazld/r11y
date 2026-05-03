@@ -337,15 +337,35 @@
     final))
 
 ;; Metadata extraction
+(defn- valid-metadata-value?
+  "Reject placeholder values that CMSes sometimes leak unresolved into
+   meta tags or JSON-LD: template literals like {author.fullName},
+   anchor-style references like #author.fullName, and strings without
+   any letter or digit at all (e.g. dashes, dots, underscores)."
+  [s]
+  (and (string? s)
+       (not (str/blank? s))
+       (not (re-find #"\{[^{}]+\}" s))
+       (not (re-find #"^#[\p{L}_][\p{L}\p{N}_.]*$" s))
+       (boolean (re-find #"[\p{L}\p{N}]" s))))
+
 (defn- safe-attr
-  "Safely get attribute from element, returning empty string if element is null"
+  "Safely get attribute from element, returning empty string if element is null
+   or the value is a placeholder."
   [^Element elem attr]
-  (if elem (.attr elem attr) ""))
+  (if elem
+    (let [v (.attr elem attr)]
+      (if (valid-metadata-value? v) v ""))
+    ""))
 
 (defn- safe-text
-  "Safely get text from element, returning empty string if element is null"
+  "Safely get text from element, returning empty string if element is null
+   or the value is a placeholder."
   [^Element elem]
-  (if elem (.text elem) ""))
+  (if elem
+    (let [v (.text elem)]
+      (if (valid-metadata-value? v) v ""))
+    ""))
 
 (defn- extract-json-ld
   "Extract and parse JSON-LD structured data"
@@ -358,40 +378,42 @@
        (catch Exception _ nil)))
 
 (defn- get-json-ld-value
-  "Safely extract value from JSON-LD data"
+  "Safely extract value from JSON-LD data. Rejects placeholder values."
   [json-ld & keys]
   (when
    json-ld
-    (let [val (get-in json-ld keys)]
-      (cond
-        (string? val) val
-        (map? val) (or (:name val)
-                       (get val (keyword "@value"))
-                       "")
-        (sequential? val) (let [first-val (first val)]
-                            (cond
-                              (string? first-val) first-val
-                              (map? first-val) (or (:name first-val)
-                                                   (get first-val (keyword "@value"))
-                                                   "")
-                              :else ""))
-        :else ""))))
+    (let [val (get-in json-ld keys)
+          raw (cond
+                (string? val) val
+                (map? val) (or (:name val)
+                               (get val (keyword "@value"))
+                               "")
+                (sequential? val) (let [first-val (first val)]
+                                    (cond
+                                      (string? first-val) first-val
+                                      (map? first-val) (or (:name first-val)
+                                                           (get first-val (keyword "@value"))
+                                                           "")
+                                      :else ""))
+                :else "")]
+      (if (valid-metadata-value? raw) raw ""))))
 
 (defn- get-json-ld-image
   "Extract image URL from JSON-LD. Image can be a string, an ImageObject map
    with :url, or an array of either."
   [json-ld]
   (when json-ld
-    (let [val (:image json-ld)]
-      (cond
-        (string? val) val
-        (map? val) (or (:url val) "")
-        (sequential? val) (let [first-val (first val)]
-                            (cond
-                              (string? first-val) first-val
-                              (map? first-val) (or (:url first-val) "")
-                              :else ""))
-        :else ""))))
+    (let [val (:image json-ld)
+          raw (cond
+                (string? val) val
+                (map? val) (or (:url val) "")
+                (sequential? val) (let [first-val (first val)]
+                                    (cond
+                                      (string? first-val) first-val
+                                      (map? first-val) (or (:url first-val) "")
+                                      :else ""))
+                :else "")]
+      (if (valid-metadata-value? raw) raw ""))))
 
 (defn- first-non-blank
   "Return first non-blank value"
