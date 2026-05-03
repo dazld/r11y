@@ -478,6 +478,15 @@
       (str (.resolve (URI. base-url) canonical-url))
       (catch Exception _ nil))))
 
+(defn- guard-sitename
+  "Reject overly long site names — sites sometimes put the article title
+   in og:site_name. More than 6 words is almost certainly not a site name."
+  [s]
+  (if (and (not (str/blank? s))
+           (> (count (re-seq #"\S+" s)) 6))
+    ""
+    s))
+
 (defn extract-metadata
   "Extract metadata from document"
   [^Document doc base-url]
@@ -494,7 +503,7 @@
                                      (safe-attr (.selectFirst doc "meta[name=description]") "content")
                                      (safe-attr (.selectFirst doc "meta[property=og:description]") "content"))
         sitename (first-non-blank (get-json-ld-value json-ld :publisher :name)
-                                  (safe-attr (.selectFirst doc "meta[property=og:site_name]") "content"))
+                                  (guard-sitename (safe-attr (.selectFirst doc "meta[property=og:site_name]") "content")))
         date (first-non-blank (get-json-ld-value json-ld :datePublished)
                               (get-json-ld-value json-ld :dateCreated)
                               (safe-attr (.selectFirst doc "meta[property=article:published_time]") "content")

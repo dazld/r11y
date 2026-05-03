@@ -770,3 +770,23 @@
                   :content-type "text/html"
                   :with-metadata true)]
       (is (= "Real description" (get-in result [:metadata :description]))))))
+
+(deftest test-sitename-word-count-guard
+  (testing "og:site_name longer than 6 words is rejected"
+    (let [html-str "<html><head><meta property=\"og:site_name\" content=\"Some Long Article Title That Is Not A Site Name\"></head><body><p>x</p></body></html>"
+          result (html/extract-content-from-url
+                  "https://example.com/page"
+                  :content (.getBytes html-str "UTF-8")
+                  :content-type "text/html"
+                  :with-metadata true)]
+      (is (str/blank? (get-in result [:metadata :sitename]))
+          "Long og:site_name should be rejected as misused")))
+
+  (testing "Reasonable og:site_name is preserved"
+    (let [html-str "<html><head><meta property=\"og:site_name\" content=\"Acme News\"></head><body><p>x</p></body></html>"
+          result (html/extract-content-from-url
+                  "https://example.com/page"
+                  :content (.getBytes html-str "UTF-8")
+                  :content-type "text/html"
+                  :with-metadata true)]
+      (is (= "Acme News" (get-in result [:metadata :sitename]))))))
