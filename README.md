@@ -6,8 +6,11 @@ A fast, GraalVM-compiled CLI tool for extracting readable content from web pages
 
 - Extract main content from any URL as clean Markdown
 - Preserves whitespace in preformatted blocks
-- Rich metadata extraction with YAML frontmatter (title, author, date, description)
-- JSON-LD structured data support
+- Rich metadata extraction with YAML frontmatter (title, author, date, description, canonical URL, hero image, favicon, sitename)
+- JSON-LD structured data support, including `@graph` walking and multi-script preference for article-typed objects
+- Markdown content negotiation — sends `Accept: text/markdown` and recognises markdown bodies even when servers mis-label them as `text/html` (e.g. Cloudflare-fronted docs)
+- Standardises React/Next.js semantic divs (`role=paragraph`, `role=list`) into proper HTML so content structure survives extraction
+- Removes decorative SVGs, spacer images, layout tables, and duplicated UI chrome
 - GitHub-optimized extraction (README files, blob content)
 - Configurable link density threshold for content filtering
 - Fast startup with GraalVM native compilation (~40ms)
@@ -22,9 +25,16 @@ It's not as battle-tested as other more mature extraction tools, but PRs are wel
 
 ## Installation
 
-### Prebuilt Binary (Linux x86_64)
+### Homebrew (macOS arm64, Linux x86_64)
 
-Download the latest binary from [GitHub Releases](https://github.com/dazld/r11y/releases).
+```bash
+brew tap dazld/tap
+brew install r11y
+```
+
+### Prebuilt Binary
+
+Download the latest binary for macOS (arm64) or Linux (x86_64) from [GitHub Releases](https://github.com/dazld/r11y/releases).
 
 ### Quick Build
 
@@ -70,8 +80,8 @@ brew install --cask graalvm-jdk
 
 **Option 2: Using SDKMAN:**
 ```bash
-sdk install java 22-graal
-sdk use java 22-graal
+sdk install java 25-graal
+sdk use java 25-graal
 ```
 
 #### Building
@@ -109,6 +119,7 @@ r11y --help
 
 - `-m, --with-metadata` - Include YAML frontmatter with metadata (title, author, date, description, etc.)
 - `-l, --link-density N` - Link density threshold 0-1 (default: 0.5). Lower values are more aggressive at filtering link-heavy content.
+- `-v, --version` - Show version
 - `-h, --help` - Show help message
 
 ### Example Output with Metadata
@@ -117,15 +128,21 @@ r11y --help
 ---
 title: Intelligence on Earth Evolved Independently at Least Twice
 author: Yasemin Saplakoglu
-url: https://www.wired.com/story/intelligence-evolved...
+url: https://www.wired.com/story/intelligence-evolved-at-least-twice-in-vertebrate-animals/
+canonical-url: https://www.wired.com/story/intelligence-evolved-at-least-twice-in-vertebrate-animals/
+is-canonical: true
 hostname: www.wired.com
-description: Complex neural circuits likely arose independently...
+description: Complex neural circuits likely arose independently in birds and mammals...
 sitename: WIRED
 date: 2025-05-11T07:00:00.000-04:00
+icon: https://www.wired.com/verso/static/wired-us/assets/favicon.ico
+image: https://media.wired.com/photos/.../NeuralIntelligence-crSamanthaMash-Lede.jpeg
 ---
 
 # Article content here...
 ```
+
+`icon` is the site favicon (largest available, Apple touch icon preferred). `image` is the article hero / social-card image (`og:image` / `twitter:image` / JSON-LD `image`).
 
 ## Development
 
@@ -145,19 +162,21 @@ clj -e "(require '[r11y.lib.html :as html]) (println (html/extract-content-from-
 
 r11y uses content extraction algorithms inspired by Mozilla's Readability and trafilatura to identify and extract the main content from web pages:
 
-1. **Metadata extraction**: Pulls structured data from JSON-LD, OpenGraph tags, meta tags, `<time>` elements, and URL patterns
-2. **Content cleaning**: Removes boilerplate elements (scripts, styles, navigation, footers, ads)
-3. **Pattern filtering**: Filters elements based on class/id patterns to remove unlikely content
-4. **Link density analysis**: Removes navigation-heavy sections based on configurable threshold
-5. **Main content identification**: Finds the primary article/content element
-6. **Markdown conversion**: Converts cleaned HTML to clean Markdown with proper formatting for headings, lists, tables, code blocks, links, and images
+1. **Content negotiation**: Sends `Accept: text/markdown` and uses the response directly when servers honour it. Sniffs response bodies to recognise markdown returned with a `text/html` content-type (common with Cloudflare-fronted sites). Strips and rebuilds upstream YAML frontmatter in our schema.
+2. **Metadata extraction**: Pulls structured data from JSON-LD (walking `@graph` and preferring article-typed objects across multiple scripts), OpenGraph and Twitter Card meta tags, `<time>` elements, and URL date patterns. Filters placeholder values (`{template.literal}`, `#author.fullName`) and rejects misused `og:site_name` values.
+3. **Content cleaning**: Removes boilerplate elements (scripts, styles, navigation, footers, ads), decorative SVGs and `[role=img]` containers, layout tables, spacer/duplicate images. Standardises `<div role=paragraph>`, `<div role=list>`, and `<div role=listitem>` into proper HTML before pruning.
+4. **Pattern filtering**: Filters elements based on class/id patterns to remove unlikely content
+5. **Link density analysis**: Removes navigation-heavy sections based on configurable threshold
+6. **Main content identification**: Finds the primary article/content element via a CSS-selector cascade with a body fallback if the chosen subtree turns out to be too small
+7. **Markdown conversion**: Converts cleaned HTML to clean Markdown with proper formatting for headings, lists, tables, code blocks, links, and images
 
 ### Special handling
 
 - **GitHub**: Automatically extracts README content from repo pages and fetches raw content for blob URLs while preserving metadata
-- **Tables**: Converts HTML tables to Markdown table format
+- **Cloudflare-fronted sites**: Recognises markdown bodies returned via `Accept: text/markdown` even when the response is mis-labelled as `text/html`
+- **Tables**: Converts HTML tables to Markdown table format; detects layout tables (no `<th>`, `border=0`, block-level content) and unwraps rather than rendering
 - **Code blocks**: Preserves formatting in `<pre>` and `<code>` elements
-- **Images**: Includes alt text and image URLs
+- **Images**: Includes alt text and image URLs; deduplicates images repeated more than twice (UI chrome)
 
 ## License
 
