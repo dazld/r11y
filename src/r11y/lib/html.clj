@@ -120,9 +120,9 @@
           role (.attr elem "role")]
       (when
        (or
-         ;; Check role attribute for decorative/content-hidden roles
+          ;; Check role attribute for decorative/content-hidden roles
         (and role (re-find #"^(img|presentation|none|button)$" role))
-         ;; Check class/id patterns
+          ;; Check class/id patterns
         (and (re-find unlikely-candidates-pattern class-id)
              (not (re-find positive-patterns class-id))
              (< (count (.text elem)) 200)))
@@ -351,8 +351,7 @@
   "Extract and parse JSON-LD structured data"
   [^Document doc]
   (try (let [json-ld-scripts (.select doc "script[type='application/ld+json']")]
-         (when
-          (seq json-ld-scripts)
+         (when (seq json-ld-scripts)
            (let [json-text (.html (first json-ld-scripts))]
              (when-not (str/blank? json-text)
                (try (json/parse json-text) (catch Exception _ nil))))))
@@ -597,12 +596,70 @@
          readme-html)
        (catch Exception _ nil)))
 
+(defn- parse-yaml-frontmatter
+  "Parse YAML frontmatter from a markdown string.
+   Returns {:frontmatter {key val ...} :body \"rest of markdown\"}.
+   If no frontmatter, returns {:frontmatter nil :body original-string}."
+  [^String text]
+  (if (str/starts-with? (str/trim text) "---")
+    (let [trimmed (str/trim text)
+          close-idx (str/index-of trimmed "\n---" 3)]
+      (if close-idx
+        (let [yaml-block (if (> close-idx 4) (subs trimmed 4 close-idx) "")
+              body (str/trim (subs trimmed (+ close-idx 4)))
+              pairs (->> (str/split-lines yaml-block)
+                         (keep (fn [line]
+                                 (when-let [colon-idx (str/index-of line ":")]
+                                   (let [k (str/trim (subs line 0 colon-idx))
+                                         v (str/trim (subs line (inc colon-idx)))]
+                                     (when-not (str/blank? k)
+                                       [k v])))))
+                         (into {}))]
+          {:frontmatter pairs :body body})
+        {:frontmatter nil :body text}))
+    {:frontmatter nil :body text}))
+
+(defn- upstream-frontmatter->metadata
+  "Map upstream YAML frontmatter fields into our metadata format.
+   Merges with URL-derived fields."
+  [fm url]
+  (let [hostname (when url (try (.getHost (URI. url)) (catch Exception _ "")))]
+    {:title (or (get fm "title") "")
+     :author (or (get fm "author") "")
+     :url url
+     :hostname (or hostname "")
+     :description (or (get fm "description") "")
+     :sitename (or (get fm "sitename") (get fm "site_name") "")
+     :date (or (get fm "date") (get fm "published") "")
+     :canonical-url ""
+     :is-canonical false
+     :icon (or (get fm "image") (get fm "icon") "")}))
+
+(defn looks-like-markdown?
+  "Sniff body bytes/string to detect markdown content.
+   Some servers (e.g. Cloudflare) return markdown but set content-type: text/html.
+   Uses markdown-specific patterns to avoid false positives with plain text/JSON/CSV."
+  [body]
+  (let [s (str/trim (if (bytes? body)
+                      (let [len (min (alength ^bytes body) 512)]
+                        (String. ^bytes body 0 len "UTF-8"))
+                      (subs (str body) 0 (min (count body) 512))))]
+    (if (or (str/blank? s)
+            (re-find #"\x00" s))
+      false
+      (or (str/starts-with? s "---")
+          (re-find #"(?m)^#{1,6}\s+\S" s)
+          (re-find #"\*\*[^\s*][^*]*\*\*" s)
+          (re-find #"(?<!_)__[^\s_][^_]*__(?!_)" s)
+          (re-find #"(?m)^[-*+]\s+\S" s)
+          (re-find #"(?m)^\d+\.\s+\S" s)))))
+
 (defn- fetch-url
   "Fetch URL with common headers and return response map."
   [url]
   (http/get-url url {:as :byte-array
                      :headers {"User-Agent" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.6 Safari/605.1.15"
-                               "Accept" "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+                               "Accept" "text/markdown,text/html;q=0.9,application/xhtml+xml;q=0.9,application/xml;q=0.8,*/*;q=0.7"
                                "Accept-Encoding" "gzip, deflate"
                                "Accept-Language" "en-GB,en;q=0.9"
                                "Priority" "u=0, i"
@@ -634,8 +691,9 @@
                                      (or with-metadata (not urls-differ?)))
                             (do-fetch url))
         original-body (or content (:body original-response))
-        ;; Step 2: Extract metadata from original content
-        metadata (when (and with-metadata original-body)
+        ;; Step 2: Extract metadata from original content (skip if body is markdown)
+        metadata (when (and with-metadata original-body
+                            (not (looks-like-markdown? original-body)))
                    (let [doc (if (bytes? original-body)
                                (parse-html-bytes original-body url)
                                (Jsoup/parse ^String original-body))]
@@ -645,11 +703,18 @@
         extraction-body (if urls-differ?
                           (:body extraction-response)
                           original-body)
-        resolved-content-type (cond
-                                extraction-response (get-in extraction-response [:headers :content-type] "")
-                                content-type content-type
-                                original-response (get-in original-response [:headers :content-type] "")
-                                :else "text/html")
+        header-content-type (cond
+                              extraction-response (get-in extraction-response [:headers :content-type] "")
+                              content-type content-type
+                              original-response (get-in original-response [:headers :content-type] "")
+                              :else "text/html")
+        ;; Some servers (e.g. Cloudflare) return markdown body but claim text/html.
+        ;; Sniff the body to detect this when we requested text/markdown.
+        resolved-content-type (if (and (str/includes? (str/lower-case header-content-type) "text/html")
+                                       extraction-body
+                                       (looks-like-markdown? extraction-body))
+                                "text/markdown"
+                                header-content-type)
         frontmatter (when metadata (metadata-to-frontmatter metadata))
         fallback-extract (fn []
                            (if metadata
@@ -667,14 +732,18 @@
                                               :link-density-threshold link-density-threshold
                                               :with-metadata with-metadata)))]
     (cond
-      ;; For non-HTML content (like raw text), return as-is with metadata
+      ;; For non-HTML content (like markdown or raw text), return as-is
+      ;; Strip any upstream YAML frontmatter; rebuild in our format if requested
       (not (str/includes? (str/lower-case resolved-content-type) "text/html"))
-      (let [text-body (if (bytes? extraction-body) (bytes->utf8 extraction-body) extraction-body)]
-        {:markdown (str frontmatter text-body)
-         :html text-body
+      (let [text-body (if (bytes? extraction-body) (bytes->utf8 extraction-body) extraction-body)
+            {upstream-fm :frontmatter body :body} (parse-yaml-frontmatter text-body)
+            md-metadata (when (and with-metadata upstream-fm)
+                          (upstream-frontmatter->metadata upstream-fm url))
+            md-frontmatter (when md-metadata (metadata-to-frontmatter md-metadata))]
+        {:markdown (str md-frontmatter body)
          :links []
          :images []
-         :metadata (or metadata {})})
+         :metadata (or md-metadata {})})
 
       ;; For GitHub repo pages, extract README directly
       (and (str/includes? normalized-url "github.com")
