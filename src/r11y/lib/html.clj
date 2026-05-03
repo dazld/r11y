@@ -77,9 +77,24 @@
     doc))
 
 ;; Cleaning pipeline functions
+(defn standardize-semantic-divs
+  "Convert role-based semantic divs to their proper HTML tags so the
+   markdown converter sees them as block content. Modern React/Next.js
+   sites emit <div role=paragraph>, <div role=list>, <div role=listitem>
+   that JSoup serializes as plain divs without semantic meaning."
+  [^Document doc]
+  (doseq [^Element elem (.select doc "div[role=paragraph]")]
+    (.tagName elem "p"))
+  (doseq [^Element elem (.select doc "div[role=list]")]
+    (.tagName elem "ul"))
+  (doseq [^Element elem (.select doc "div[role=listitem]")]
+    (.tagName elem "li"))
+  doc)
+
 (defn clean-document
   "Initial cleaning of the document."
   [^Document doc]
+  (standardize-semantic-divs doc)
   (doseq [elem (.select
                 doc
                 "script, style, noscript, iframe, object, embed, footer, header, nav, head link, aside, svg, canvas, applet, input, button, select, textarea, label, fieldset, legend, dialog")]

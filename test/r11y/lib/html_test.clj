@@ -843,3 +843,33 @@
                   :content-type "text/html"
                   :with-metadata true)]
       (is (= "Commented Title" (get-in result [:metadata :title]))))))
+
+(deftest test-semantic-div-standardization
+  (testing "div[role=paragraph] is treated as a paragraph in output"
+    (let [html-str "<html><body><article><div role=\"paragraph\">First sentence.</div><div role=\"paragraph\">Second sentence.</div></article></body></html>"
+          result (html/extract-content-from-url
+                  "https://example.com"
+                  :content (.getBytes html-str "UTF-8")
+                  :content-type "text/html"
+                  :with-metadata false)]
+      (is (re-find #"First sentence\." (:markdown result)))
+      (is (re-find #"Second sentence\." (:markdown result)))
+      (is (re-find #"First sentence\.\s*\n\s*\n\s*Second sentence\." (:markdown result))
+          "Adjacent role=paragraph divs should produce paragraph breaks")))
+
+  (testing "div[role=list] with div[role=listitem] becomes a markdown list"
+    (let [html-str (str "<html><body><article>"
+                        "<div role=\"list\">"
+                        "<div role=\"listitem\">Apple</div>"
+                        "<div role=\"listitem\">Banana</div>"
+                        "<div role=\"listitem\">Cherry</div>"
+                        "</div>"
+                        "</article></body></html>")
+          result (html/extract-content-from-url
+                  "https://example.com"
+                  :content (.getBytes html-str "UTF-8")
+                  :content-type "text/html"
+                  :with-metadata false)]
+      (is (re-find #"(?m)^\s*[-*]\s+Apple" (:markdown result)))
+      (is (re-find #"(?m)^\s*[-*]\s+Banana" (:markdown result)))
+      (is (re-find #"(?m)^\s*[-*]\s+Cherry" (:markdown result))))))
