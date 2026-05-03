@@ -151,7 +151,7 @@
                 (if (> (count (.text el)) (count (.text ^Element best)))
                   el
                   best))
-              (.first elements)
+              (first elements)
               elements))))
 
 (defn get-main-content-element
