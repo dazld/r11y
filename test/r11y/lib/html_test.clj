@@ -691,3 +691,53 @@
       (is (re-find #"Only paragraph" (:markdown result)) "Should contain paragraph")
       (is (not (re-find #"<svg" (:markdown result))) "Should not contain SVG tags")
       (is (not (re-find #"role=" (:markdown result))) "Should not contain role attribute"))))
+
+(deftest test-image-metadata-extraction
+  (testing "og:image populates :image metadata field"
+    (let [html-str "<html><head><meta property=\"og:image\" content=\"https://example.com/hero.jpg\"></head><body><p>Body</p></body></html>"
+          result (html/extract-content-from-url
+                  "https://example.com/page"
+                  :content (.getBytes html-str "UTF-8")
+                  :content-type "text/html"
+                  :with-metadata true)]
+      (is (= "https://example.com/hero.jpg" (get-in result [:metadata :image])))
+      (is (re-find #"image: https://example.com/hero.jpg" (:markdown result)))))
+
+  (testing "twitter:image is used as a fallback"
+    (let [html-str "<html><head><meta name=\"twitter:image\" content=\"https://example.com/twitter.jpg\"></head><body><p>Body</p></body></html>"
+          result (html/extract-content-from-url
+                  "https://example.com/page"
+                  :content (.getBytes html-str "UTF-8")
+                  :content-type "text/html"
+                  :with-metadata true)]
+      (is (= "https://example.com/twitter.jpg" (get-in result [:metadata :image])))))
+
+  (testing "JSON-LD image string takes precedence over meta tags"
+    (let [html-str "<html><head><script type=\"application/ld+json\">{\"@type\":\"Article\",\"headline\":\"T\",\"image\":\"https://example.com/jsonld.jpg\"}</script><meta property=\"og:image\" content=\"https://example.com/og.jpg\"></head><body><p>Body</p></body></html>"
+          result (html/extract-content-from-url
+                  "https://example.com/page"
+                  :content (.getBytes html-str "UTF-8")
+                  :content-type "text/html"
+                  :with-metadata true)]
+      (is (= "https://example.com/jsonld.jpg" (get-in result [:metadata :image])))))
+
+  (testing "JSON-LD image as ImageObject map with :url"
+    (let [html-str "<html><head><script type=\"application/ld+json\">{\"@type\":\"Article\",\"headline\":\"T\",\"image\":{\"@type\":\"ImageObject\",\"url\":\"https://example.com/obj.jpg\"}}</script></head><body><p>Body</p></body></html>"
+          result (html/extract-content-from-url
+                  "https://example.com/page"
+                  :content (.getBytes html-str "UTF-8")
+                  :content-type "text/html"
+                  :with-metadata true)]
+      (is (= "https://example.com/obj.jpg" (get-in result [:metadata :image]))))))
+
+(deftest test-upstream-markdown-image-mapping
+  (testing "upstream YAML image: maps to :image, not :icon"
+    (let [md "---\ntitle: Hello\nimage: https://example.com/social.png\n---\n# Body"
+          result (html/extract-content-from-url
+                  "https://example.com"
+                  :content (.getBytes md "UTF-8")
+                  :content-type "text/markdown"
+                  :with-metadata true)]
+      (is (= "https://example.com/social.png" (get-in result [:metadata :image])))
+      (is (str/blank? (get-in result [:metadata :icon]))
+          "icon should not be populated from upstream image"))))

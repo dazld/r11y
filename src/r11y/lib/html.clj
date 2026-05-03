@@ -377,6 +377,22 @@
                               :else ""))
         :else ""))))
 
+(defn- get-json-ld-image
+  "Extract image URL from JSON-LD. Image can be a string, an ImageObject map
+   with :url, or an array of either."
+  [json-ld]
+  (when json-ld
+    (let [val (:image json-ld)]
+      (cond
+        (string? val) val
+        (map? val) (or (:url val) "")
+        (sequential? val) (let [first-val (first val)]
+                            (cond
+                              (string? first-val) first-val
+                              (map? first-val) (or (:url first-val) "")
+                              :else ""))
+        :else ""))))
+
 (defn- first-non-blank
   "Return first non-blank value"
   [& values]
@@ -467,7 +483,11 @@
         raw-canonical-url (safe-attr (.selectFirst doc "link[rel=canonical]") "href")
         canonical-url (resolve-canonical-url base-url raw-canonical-url)
         is-canonical (or (str/blank? canonical-url) (= canonical-url base-url))
-        icon (extract-site-icon doc base-url)]
+        icon (extract-site-icon doc base-url)
+        image (first-non-blank (get-json-ld-image json-ld)
+                               (safe-attr (.selectFirst doc "meta[property=og:image]") "content")
+                               (safe-attr (.selectFirst doc "meta[name=twitter:image]") "content")
+                               (safe-attr (.selectFirst doc "meta[property=twitter:image]") "content"))]
     {:title (or title "")
      :author (or author "")
      :url base-url
@@ -477,7 +497,8 @@
      :date (or date "")
      :canonical-url (or canonical-url "")
      :is-canonical is-canonical
-     :icon (or icon "")}))
+     :icon (or icon "")
+     :image (or image "")}))
 
 (defn metadata-to-frontmatter
   "Convert metadata map to YAML frontmatter string"
@@ -491,7 +512,8 @@
                 [:description (:description metadata)]
                 [:sitename (:sitename metadata)]
                 [:date (:date metadata)]
-                [:icon (:icon metadata)]]
+                [:icon (:icon metadata)]
+                [:image (:image metadata)]]
         non-empty-fields (filter #(not (str/blank? (str (second %)))) fields)
         yaml-lines (map (fn [[k v]]
                           (str (name k) ": " v))
@@ -633,7 +655,8 @@
      :date (or (get fm "date") (get fm "published") "")
      :canonical-url ""
      :is-canonical false
-     :icon (or (get fm "image") (get fm "icon") "")}))
+     :icon (or (get fm "icon") "")
+     :image (or (get fm "image") "")}))
 
 (defn looks-like-markdown?
   "Sniff body bytes/string to detect markdown content.
