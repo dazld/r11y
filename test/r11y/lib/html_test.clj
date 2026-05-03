@@ -1,5 +1,6 @@
 (ns r11y.lib.html-test
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [clojure.string :as str]
+            [clojure.test :refer [deftest is testing]]
             [r11y.lib.html :as html])
   (:import [org.jsoup Jsoup]))
 
@@ -610,6 +611,64 @@
           readme-result (html/extract-github-readme html-str)]
       (is (some? readme-result))
       (is (re-find #"README" readme-result)))))
+
+(deftest test-yaml-frontmatter-edge-cases
+  (testing "Empty frontmatter --- followed immediately by ---"
+    (let [md "---\n---\n# Content"
+          result (html/extract-content-from-url
+                  "https://example.com"
+                  :content (.getBytes md "UTF-8")
+                  :content-type "text/markdown"
+                  :with-metadata false)]
+      (is (some? (:markdown result)) "Should return markdown without throwing")
+      (is (str/starts-with? (str/trim (:markdown result)) "# Content")
+          "Empty upstream frontmatter should be stripped, leaving only the body")))
+
+  (testing "Non-empty frontmatter is stripped from body"
+    (let [md "---\ntitle: Hello\n---\n# Body"
+          result (html/extract-content-from-url
+                  "https://example.com"
+                  :content (.getBytes md "UTF-8")
+                  :content-type "text/markdown"
+                  :with-metadata false)]
+      (is (re-find #"# Body" (:markdown result)) "Body should contain heading")
+      (is (not (re-find #"title:" (:markdown result)))
+          "Upstream YAML keys should not leak into body"))))
+
+(deftest test-body-sniffing-detects-markdown
+  (testing "Body sniffing detects markdown patterns"
+    (let [sniff html/looks-like-markdown?]
+      (is (sniff "# Heading") "Should detect ATX heading")
+      (is (sniff "## Subheading") "Should detect multiple #")
+      (is (sniff "---\ntitle: Test") "Should detect YAML frontmatter")
+      (is (sniff "- list item") "Should detect list marker")
+      (is (sniff "* bold start") "Should detect asterisk bold")
+      (is (sniff "1. ordered list") "Should detect ordered list")))
+
+  (testing "Body sniffing rejects non-markdown"
+    (let [sniff html/looks-like-markdown?]
+      (is (not (sniff "Plain text")) "Should reject plain text")
+      (is (not (sniff "{\"json\": true}")) "Should reject JSON")
+      (is (not (sniff "name,value\nfoo,1")) "Should reject CSV")
+      (is (not (sniff "\u0000binary")) "Should reject null bytes"))))
+
+(deftest test-body-sniffing-inline-formatting
+  (testing "Body sniffing detects inline bold/italic in sentence"
+    (let [sniff html/looks-like-markdown?]
+      (is (sniff "Some **bold** text") "Should detect bold in sentence")
+      (is (sniff "Some __italic__ text") "Should detect italic in sentence"))))
+
+(deftest test-content-negotiation-sniff-fallback
+  (testing "text/html with markdown body falls back to markdown handling"
+    (let [md "# Title\n\nSome **bold** content"
+          result (html/extract-content-from-url
+                  "https://example.com"
+                  :content (.getBytes md "UTF-8")
+                  :content-type "text/html")]
+      (is (re-find #"^# Title" (:markdown result))
+          "Markdown body should be returned verbatim, not run through HTML extraction")
+      (is (re-find #"\*\*bold\*\*" (:markdown result))
+          "Inline markdown formatting should be preserved"))))
 
 (deftest test-role-img-pruning
   (testing "role=img elements are removed from extraction"
