@@ -578,12 +578,46 @@
   (testing "GitHub URLs are normalized correctly"
     (let [url "https://github.com/user/repo/blob/main/README.md"
           normalized (html/normalize-github-url url)]
-      (is (= "https://github.com/user/repo/blob/main/README.md?raw=true" normalized)
-          "GitHub blob URLs should have ?raw=true appended"))
+      (is (= "https://raw.githubusercontent.com/user/repo/main/README.md" normalized)
+          "GitHub blob URLs should be rewritten to raw.githubusercontent.com"))
+    (let [url "https://github.com/user/repo/blob/feature/sub/path/file.md"
+          normalized (html/normalize-github-url url)]
+      (is (= "https://raw.githubusercontent.com/user/repo/feature/sub/path/file.md" normalized)
+          "Branch and nested paths should be preserved"))
     (let [url "https://github.com/user/repo"
           normalized (html/normalize-github-url url)]
       (is (= url normalized)
           "Non-blob GitHub URLs should remain unchanged"))))
+
+(deftest test-github-blob-url-extraction
+  (testing "GitHub /blob/ URLs return raw body plus HTML-derived frontmatter"
+    (let [blob-url "https://github.com/user/repo/blob/main/README.md"
+          raw-url "https://raw.githubusercontent.com/user/repo/main/README.md"
+          blob-html (str "<html><head>"
+                         "<title>repo/README.md at main · user/repo · GitHub</title>"
+                         "<meta property=\"og:description\" content=\"A test repo description\">"
+                         "<meta property=\"og:site_name\" content=\"GitHub\">"
+                         "</head><body></body></html>")
+          raw-md "# Project\n\nThis is the README body.\n"
+          fetch-fn (fn [u]
+                     (cond
+                       (= u blob-url) {:body (.getBytes blob-html "UTF-8")
+                                       :headers {:content-type "text/html; charset=utf-8"}}
+                       (= u raw-url) {:body (.getBytes raw-md "UTF-8")
+                                      :headers {:content-type "text/plain; charset=utf-8"}}
+                       :else (throw (ex-info "unexpected fetch" {:url u}))))
+          result (html/extract-content-from-url
+                  blob-url
+                  :format :markdown
+                  :with-metadata true
+                  :fetch-fn fetch-fn)
+          md (:markdown result)]
+      (is (str/includes? md "# Project") "README body should appear in output")
+      (is (str/includes? md "This is the README body.") "Full body should be present")
+      (is (str/starts-with? (str/trim md) "---") "Frontmatter should lead the output")
+      (is (str/includes? md "sitename: GitHub") "HTML-derived sitename should be in frontmatter")
+      (is (str/includes? md "description: A test repo description")
+          "HTML-derived description should be in frontmatter"))))
 
 (deftest test-link-density-calculation
   (testing "Link density is calculated correctly"
