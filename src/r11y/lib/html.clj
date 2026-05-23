@@ -727,11 +727,15 @@
        :main-element main-element})))
 
 (defn normalize-github-url
-  "Convert GitHub blob URLs to raw URLs for better content extraction"
+  "Convert GitHub blob URLs to raw.githubusercontent.com URLs for better
+   content extraction. GitHub's ?raw=true query param on /blob/ paths no
+   longer returns raw content (responds 422)."
   [url]
-  (if (and (str/includes? url "github.com")
+  (if (and (str/includes? url "://github.com/")
            (str/includes? url "/blob/"))
-    (str url "?raw=true")
+    (-> url
+        (str/replace-first "://github.com/" "://raw.githubusercontent.com/")
+        (str/replace-first "/blob/" "/"))
     url))
 
 (defn extract-github-readme
@@ -881,18 +885,22 @@
                                               :link-density-threshold link-density-threshold
                                               :with-metadata with-metadata)))]
     (cond
-      ;; For non-HTML content (like markdown or raw text), return as-is
-      ;; Strip any upstream YAML frontmatter; rebuild in our format if requested
+      ;; For non-HTML content (like markdown or raw text), return as-is.
+      ;; Prefer upstream YAML frontmatter in the body, then fall back to
+      ;; metadata extracted from the original URL (e.g. GitHub blob HTML page
+      ;; when the extraction URL is the raw markdown).
       (not (str/includes? (str/lower-case resolved-content-type) "text/html"))
       (let [text-body (if (bytes? extraction-body) (bytes->utf8 extraction-body) extraction-body)
             {upstream-fm :frontmatter body :body} (parse-yaml-frontmatter text-body)
             md-metadata (when (and with-metadata upstream-fm)
                           (upstream-frontmatter->metadata upstream-fm url))
-            md-frontmatter (when md-metadata (metadata-to-frontmatter md-metadata))]
-        {:markdown (str md-frontmatter body)
+            md-frontmatter (when md-metadata (metadata-to-frontmatter md-metadata))
+            effective-frontmatter (or md-frontmatter frontmatter)
+            effective-metadata (or md-metadata metadata)]
+        {:markdown (str effective-frontmatter body)
          :links []
          :images []
-         :metadata (or md-metadata {})})
+         :metadata (or effective-metadata {})})
 
       ;; For GitHub repo pages, extract README directly
       (and (str/includes? normalized-url "github.com")
