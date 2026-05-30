@@ -4,6 +4,8 @@ A lightning fast, GraalVM-compiled CLI tool for extracting readable content from
 
 `r11y` as in `readability` - or "oh rlly?" if you're ancient and remember the terrible owl meme.
 
+![r11y converting a web page to clean Markdown from the command line](demo.gif)
+
 ## Features
 
 - Extract main content from any URL as clean Markdown
