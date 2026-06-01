@@ -26,6 +26,64 @@
     "allPublicConstructors": true
   },
   {
+    "name": "java.net.Proxy",
+    "allPublicMethods": true,
+    "allPublicConstructors": true
+  },
+  {
+    "name": "java.net.Proxy$Type",
+    "allPublicMethods": true,
+    "allPublicFields": true
+  },
+  {
+    "name": "java.net.ProxySelector",
+    "allPublicMethods": true,
+    "allPublicConstructors": true
+  },
+  {
+    "name": "java.net.InetSocketAddress",
+    "allPublicMethods": true,
+    "allPublicConstructors": true
+  },
+  {
+    "name": "javax.net.ssl.SSLSocket",
+    "allPublicMethods": true,
+    "allPublicConstructors": true
+  },
+  {
+    "name": "javax.net.ssl.SSLSocketFactory",
+    "allPublicMethods": true
+  },
+  {
+    "name": "javax.net.ssl.SSLSocketFactoryImpl",
+    "allPublicMethods": true,
+    "allPublicConstructors": true
+  },
+  {
+    "name": "sun.security.ssl.SSLSocketFactoryImpl",
+    "allPublicMethods": true,
+    "allPublicConstructors": true
+  },
+  {
+    "name": "sun.security.ssl.SSLSocketImpl",
+    "allPublicMethods": true,
+    "allPublicConstructors": true
+  },
+  {
+    "name": "javax.net.ssl.SSLParameters",
+    "allPublicMethods": true,
+    "allPublicConstructors": true
+  },
+  {
+    "name": "javax.net.ssl.SSLContext",
+    "allPublicMethods": true,
+    "allPublicConstructors": true
+  },
+  {
+    "name": "javax.net.ssl.SSLContextSpi",
+    "allPublicMethods": true
+  },
+  {
     "name": "java.util.regex.Pattern",
     "allPublicMethods": true,
     "allPublicConstructors": true

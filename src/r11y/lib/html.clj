@@ -807,18 +807,25 @@
           (re-find #"(?m)^[-*+]\s+\S" s)
           (re-find #"(?m)^\d+\.\s+\S" s)))))
 
+(def ^:const default-fetch-headers
+  "Default request identity for content extraction. The User-Agent
+   and Sec-Fetch-* headers make servers serve the same content they
+   would serve to a Safari user, which is the common case r11y is
+   built to read."
+  {"User-Agent" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.6 Safari/605.1.15"
+   "Accept" "text/markdown,text/html;q=0.9,application/xhtml+xml;q=0.9,application/xml;q=0.8,*/*;q=0.7"
+   "Accept-Encoding" "gzip, deflate"
+   "Accept-Language" "en-GB,en;q=0.9"
+   "Priority" "u=0, i"
+   "Sec-Fetch-Dest" "document"
+   "Sec-Fetch-Mode" "navigate"
+   "Sec-Fetch-Site" "none"})
+
 (defn- fetch-url
-  "Fetch URL with common headers and return response map."
-  [url]
-  (http/get-url url {:as :byte-array
-                     :headers {"User-Agent" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.6 Safari/605.1.15"
-                               "Accept" "text/markdown,text/html;q=0.9,application/xhtml+xml;q=0.9,application/xml;q=0.8,*/*;q=0.7"
-                               "Accept-Encoding" "gzip, deflate"
-                               "Accept-Language" "en-GB,en;q=0.9"
-                               "Priority" "u=0, i"
-                               "Sec-Fetch-Dest" "document"
-                               "Sec-Fetch-Mode" "navigate"
-                               "Sec-Fetch-Site" "none"}}))
+  "Fetch URL with default headers. Return response map."
+  [url {:keys [proxy]}]
+  (http/get-url url (cond-> {:as :byte-array :headers default-fetch-headers}
+                      proxy (assoc :proxy proxy))))
 
 (defn extract-content-from-url
   "Extract main content from a URL. Returns clean HTML by default.
@@ -828,13 +835,17 @@
    :with-metadata - include YAML frontmatter with metadata (default false)
    :content - pre-fetched HTML content (String or bytes), skips initial fetch
    :content-type - content-type of pre-fetched content
-   :fetch-fn - custom fetch function returning http-kit style response map"
+   :fetch-fn - custom fetch function returning http-kit style response map
+   :proxy - proxy URL string (e.g. socks5://127.0.0.1:9050)"
   [url & {:keys [format link-density-threshold with-metadata
-                 content content-type fetch-fn]
+                 content content-type fetch-fn proxy]
           :or {format :html
                link-density-threshold default-link-density-threshold
                with-metadata false}}]
-  (let [do-fetch (or fetch-fn fetch-url)
+  (let [do-fetch (or fetch-fn
+                     (let [base-opts (cond-> {:as :byte-array :headers default-fetch-headers}
+                                       proxy (assoc :proxy proxy))]
+                       (fn [u] (http/get-url u base-opts))))
         normalized-url (normalize-github-url url)
         urls-differ? (not= normalized-url url)
         ;; Step 1: Resolve original content
