@@ -17,6 +17,7 @@ A lightning fast, GraalVM-compiled CLI tool for extracting readable content from
 - Removes decorative SVGs, spacer images, layout tables, and duplicated UI chrome
 - GitHub-optimized extraction (README files, blob content)
 - Configurable link density threshold for content filtering
+- SOCKS5 proxy support (`--proxy`) for accessing geo-blocked or firewalled content, with chunked transfer-encoding handled correctly
 - Babashka-compatible — usable from `bb` scripts via `:git/tag` deps, no GraalVM required
 - Fast startup with GraalVM native compilation (~40ms)
 
@@ -108,6 +109,9 @@ r11y --link-density 0.3 https://example.com
 # GitHub blob URLs (automatically fetches raw content with metadata)
 r11y -m https://github.com/user/repo/blob/main/README.md
 
+# Route traffic through a SOCKS5 proxy
+r11y --proxy socks5://127.0.0.1:9050 https://example.com
+
 # Show help
 r11y --help
 ```
@@ -116,6 +120,7 @@ r11y --help
 
 - `-m, --with-metadata` - Include YAML frontmatter with metadata (title, author, date, description, etc.)
 - `-l, --link-density N` - Link density threshold 0-1 (default: 0.5). Lower values are more aggressive at filtering link-heavy content.
+- `-p, --proxy URL` - SOCKS5 proxy URL with host:port (e.g. `socks5://127.0.0.1:9050`). Useful for accessing geo-blocked or firewalled content.
 - `-v, --version` - Show version
 - `-h, --help` - Show help message
 
