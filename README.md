@@ -31,7 +31,7 @@ brew install r11y
 
 ### Prebuilt Binary
 
-Download the latest binary for macOS (arm64) or Linux (x86_64) from [GitHub Releases](https://github.com/dazld/r11y/releases).
+Download the latest binary for macOS (arm64), Linux (x86_64) or Linux (arm64, including Asahi) from [GitHub Releases](https://github.com/dazld/r11y/releases).
 
 ### Quick Build
 

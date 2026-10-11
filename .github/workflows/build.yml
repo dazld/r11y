@@ -32,6 +32,49 @@ jobs:
           path: r11y-linux-amd64
           if-no-files-found: error
 
+  build-linux-arm64:
+    runs-on: ubuntu-24.04-arm
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # GraalVM 25: its aarch64 images also run on 16K-page kernels (Asahi Linux)
+      - name: Setup GraalVM
+        uses: graalvm/setup-graalvm@v1
+        with:
+          java-version: '25'
+          distribution: 'graalvm-community'
+
+      - name: Setup Clojure
+        uses: DeLaGuardo/setup-clojure@13.4
+        with:
+          cli: latest
+
+      - name: Cache deps
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+          key: deps-linux-arm64-${{ hashFiles('deps.edn') }}
+          restore-keys: deps-linux-arm64-
+
+      - name: Build Linux arm64 native binary
+        run: ./build-native.sh
+
+      - name: Rename binary
+        run: mv r11y r11y-linux-arm64
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: r11y-linux-arm64
+          path: r11y-linux-arm64
+          if-no-files-found: error
+
   build-macos:
     runs-on: macos-latest
 
@@ -76,7 +119,7 @@ jobs:
 
   release:
     if: startsWith(github.ref, 'refs/tags/')
-    needs: [build-linux, build-macos]
+    needs: [build-linux, build-linux-arm64, build-macos]
     runs-on: ubuntu-latest
 
     steps:
@@ -88,5 +131,6 @@ jobs:
         with:
           files: |
             r11y-linux-amd64/r11y-linux-amd64
+            r11y-linux-arm64/r11y-linux-arm64
             r11y-macos-arm64/r11y-macos-arm64
           generate_release_notes: true
