@@ -920,3 +920,47 @@
       (is (re-find #"(?m)^\s*[-*]\s+Apple" (:markdown result)))
       (is (re-find #"(?m)^\s*[-*]\s+Banana" (:markdown result)))
       (is (re-find #"(?m)^\s*[-*]\s+Cherry" (:markdown result))))))
+
+(deftest test-nested-list-structure
+  (testing "list indentation follows list nesting, not DOM depth (issue: nested lists)"
+    (let [md (html/html-to-markdown
+              (slurp "test/fixtures/nested-lists.html"))
+          lines (str/split-lines md)]
+      (is (= "- Apple" (first lines)))
+      (is (= "- Banana" (second lines)))
+      (is (= "  1. The `yellow` one." (nth lines 2))
+          "an ordered sub-list keeps its numbering and is indented by its parent's marker width")
+      (is (= "  2. > A *sunflower* would be jealous." (nth lines 3))
+          "a blockquote inside a list item stays part of that item")
+      (is (= "     >" (nth lines 4)) "empty quote continuation lines stay indented")
+      (is (= "     > **Even**" (nth lines 5)) "quote continuation lines stay indented")
+      (is (= "     > the sun." (nth lines 6)))
+      (is (= "- Kiwi" (nth lines 7))
+          "the outer list survives an item that contains block-level children")
+      (is (not (re-find #"(?m)^- \S.*[ \t]+- " md)) "no two bullets glued onto one line")
+      (is (not (re-find #"(?m)^- (Apple|Banana|Kiwi) +\d" md)) "sub-list never starts mid-line")))
+
+  (testing "deeply nested lists inside wrapper divs nest correctly"
+    (let [md (html/html-to-markdown
+              "<div><article><div><ul><li>a<div><ul><li>b<ul><li>c</li></ul></li></ul></div></li></ul></div></article></div>")]
+      (is (= "- a\n  - b\n    - c" (str/trim md)))))
+
+  (testing "ordered lists number from start, and items containing paragraphs stay loose"
+    (let [md (str/trim (html/html-to-markdown
+                        "<ol start=\"5\"><li>first</li><li>second<p>extra para</p></li><li>third</li></ol>"))]
+      (is (= "5. first\n6. second\n\n   extra para\n\n7. third" md))))
+
+  (testing "a fenced code block inside a list item stays inside that item"
+    (let [md (str/trim (html/html-to-markdown
+                        "<ul><li>run:<pre><code>line one\n  line two</code></pre></li><li>next</li></ul>"))]
+      (is (re-find #"\n\n  ```\n  line one\n    line two\n  ```\n" md)
+          "fence and payload are indented to the item, payload whitespace untouched")
+      (is (re-find #"\n- next$" md) "the code block does not swallow the following item")))
+
+  (testing "a heading is never glued to the block before it"
+    (let [md (html/html-to-markdown "<p>text</p><h2>Next</h2><ul><li>x</li></ul><h3>Sub</h3>")]
+      (is (re-find #"(?m)^text\n\n## Next$" md))
+      (is (re-find #"(?m)^- x\n\n### Sub$" md))))
+
+  (testing "a stray li outside a list gets a bare bullet"
+    (is (= "- orphan" (str/trim (html/html-to-markdown "<div><li>orphan</li></div>"))))))

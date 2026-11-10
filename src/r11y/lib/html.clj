@@ -11,6 +11,9 @@
 (def PRESERVE_START_TOKEN "__PRESERVE_ae0d3c51_START__")
 (def PRESERVE_END_TOKEN "__PRESERVE_ae0d3c51_END__")
 
+(def preserve-region-pattern
+  (Pattern/compile (str "(?s)" PRESERVE_START_TOKEN ".*?" PRESERVE_END_TOKEN)))
+
 (defn- parse-html-bytes
   "Parse HTML from bytes, letting JSoup detect the charset"
   [^bytes body-bytes base-url]
@@ -195,15 +198,194 @@
 
 ;; Markdown conversion
 (declare element-to-markdown)
+(declare node-to-markdown)
+
+(def ^:private block-tags
+  #{"address" "article" "aside" "blockquote" "br" "dd" "details" "div" "dl" "dt"
+    "fieldset" "figcaption" "figure" "footer" "form" "h1" "h2" "h3" "h4" "h5"
+    "h6" "header" "hr" "li" "main" "nav" "ol" "p" "pre" "section" "summary"
+    "table" "tbody" "td" "tfoot" "th" "thead" "tr" "ul" "center"})
+
+(defn- parse-error-node? [^Node n]
+  (and (some? n) (= "#parse-error" (.nodeName n))))
+
+(defn- block-node? [n]
+  (and (instance? Element n) (contains? block-tags (.tagName ^Element n))))
+
+(defn- at-block-start?
+  "True when a text node begins a block: preceded by a block-level sibling (a br
+   from a hard line break counts) or by nothing at all. Re-parsing the pretty
+   printed subtree leaves source newlines glued onto the start of real text, and
+   that whitespace must not survive onto the new line."
+  [^TextNode tn]
+  (let [prev (.previousSibling tn)]
+    (or (parse-error-node? prev) (block-node? prev))))
+
+(defn- pretty-print-whitespace?
+  "True when a whitespace-only text node sits at a block boundary, or at the edge
+   of its container: that is source indentation, not meaningful space between
+   inline runs. Left in, it leaks a stray space onto the start of an output line
+   and breaks list and table nesting."
+  [^TextNode tn]
+  (let [prev (.previousSibling tn)
+        next (.nextSibling tn)]
+    (or (parse-error-node? prev) (parse-error-node? next)
+        (block-node? prev) (block-node? next))))
+
+(defn- protected-chunks
+  "Split s into alternating plain and protected parts, where a protected part is
+   a pre/code payload that must be emitted verbatim."
+  [s]
+  (loop [s s acc []]
+    (if-let [whole (re-find preserve-region-pattern s)]
+      (let [idx (.indexOf s ^String whole)]
+        (recur (subs s (+ idx (count whole)))
+               (conj acc (subs s 0 idx) {:raw whole})))
+      (conj acc s))))
+
+(defn- map-unprotected
+  "Apply f only to the parts of s that lie outside protected pre/code payloads."
+  [s f]
+  (reduce (fn [acc part] (str acc (if (map? part) (:raw part) (f part))))
+          ""
+          (protected-chunks s)))
+
+(defn- collapse-blank-lines
+  "Trim trailing whitespace off every line and collapse blank-line runs to a single
+   blank line. Deliberately keeps the leading/trailing newlines: they are what keep
+   a fence or a table on its own line when the string is later re-joined around a
+   protected pre/code payload."
+  [s]
+  (str/join "\n"
+            (reduce (fn [acc line]
+                      (let [line (str/trimr line)]
+                        ;; (peek acc) is nil for the first line, which is blank but
+                        ;; must not be treated as a repeated blank line
+                        (if (and (str/blank? line) (seq acc) (str/blank? (peek acc)))
+                          acc
+                          (conj acc line))))
+                    []
+                    ;; split-lines drops the trailing empty string, which is the
+                    ;; newline a fence needs before an adjacent protected payload
+                    (str/split s #"\r?\n" -1))))
+
+(defn- trim-outer-blank-lines
+  "Drop blank lines at the start and end of a string, keeping the ones inside."
+  [s]
+  (let [lines (str/split-lines s)
+        from-first (drop-while str/blank? lines)
+        from-both (reverse (drop-while str/blank? (reverse from-first)))]
+    (str/join "\n" from-both)))
+
+(defn- indent-continuation-lines
+  "Prefix every line after the first with pad. Protected pre/code payloads are
+   indented too: a fenced block inside a list item has to sit at that item's
+   indentation to stay part of it."
+  [s pad]
+  (let [lines (str/split s #"\n" -1)]
+    (str/join "\n"
+              (map-indexed (fn [i line]
+                             (if (zero? i) line (if (str/blank? line) "" (str pad line))))
+                           lines))))
+
+(defn- flow-break-child?
+  "A block-level child that must start on its own line. br/hr already emit their
+   own break, so they are left alone."
+  [n]
+  (and (block-node? n) (not (#{"br" "hr"} (.tagName ^Element n)))))
+
+(def ^:private list-tags #{"ul" "ol"})
+
+(def ^:private transparent-container-tags
+  #{"div" "section" "article" "main" "figure"})
+
+(defn- starts-with-list?
+  "True when a child element's first block-level content is itself a list, looking
+   through the transparent containers (<div>, <section>, ...) that publishers wrap
+   sub-lists in. A sub-list attaches to its parent item with a single newline; a
+   paragraph, table or fence needs a blank line first."
+  [n]
+  (when (instance? Element n)
+    (let [tag (.tagName ^Element n)]
+      (cond
+        (list-tags tag) true
+        (transparent-container-tags tag)
+        (starts-with-list? (first (filter block-node? (.children ^Element n))))
+        :else false))))
+
+(defn- render-children
+  "Render an element's children in order, inserting a hard break before any
+   block-level child that would otherwise be glued onto the end of a text line.
+   Re-parsing the pretty-printed subtree can drop the whitespace text node that
+   used to separate them."
+  [^Element element depth preserve-whitespace?]
+  (reduce (fn [acc child]
+            (let [rendered (node-to-markdown child (inc depth) preserve-whitespace?)]
+              (if (and (flow-break-child? child) (not (str/blank? acc)))
+                (str acc
+                     ;; a sub-list attaches to its item with a single newline (tight
+                     ;; list), and a definition attaches to its term the same way;
+                     ;; any other block needs a blank line first
+                     (if (or (starts-with-list? child) (= "dd" (.tagName ^Element child)))
+                       (if (str/ends-with? acc "\n") "" "\n")
+                       (if (str/ends-with? acc "\n\n") "" "\n\n"))
+                     rendered)
+                (str acc rendered))))
+          ""
+          (.childNodes element)))
+
+(defn- list-item-body
+  "Render a list item's children, without its own bullet marker. The nested
+   blocks (a paragraph, a blockquote, a sub-list) each start their own line."
+  [^Element li depth preserve-whitespace?]
+  (render-children li depth preserve-whitespace?))
+
+(defn- render-list
+  "Render a ul/ol as Markdown list items. Indentation comes from list nesting
+   (marker width), never from DOM depth, so an item wrapped in div/section/etc.
+   still nests correctly; and block-level children inside an item (nested lists,
+   paragraphs, blockquotes) are indented so they stay part of that item rather
+   than terminating the list. Ordered lists keep their numbering."
+  [^Element element depth preserve-whitespace?]
+  (let [ordered? (= (.tagName element) "ol")
+        start-num (let [s (.attr element "start")]
+                    (if (re-find #"\A-?\d+\z" s) (Integer/parseInt s) 1))
+        items (filter #(= "li" (.tagName ^Element %)) (.children element))]
+    (str/join
+     (map-indexed
+      (fn [i ^Element li]
+        (let [marker (if ordered? (str (+ start-num i) ". ") "- ")
+              pad (str/join (repeat (count marker) " "))
+              body (-> (list-item-body li depth preserve-whitespace?)
+                       (map-unprotected collapse-blank-lines)
+                       trim-outer-blank-lines)]
+          (if (str/blank? body)
+            (str marker "\n")
+            (str marker (indent-continuation-lines body pad)
+                 ;; an item whose body holds more than one block (paragraphs, a
+                 ;; blockquote, a table, a fence) needs a blank line after it, or the
+                 ;; next item gets swallowed into that block
+                 (if (or (str/includes? body "\n\n")
+                         (re-find #"(?m)^(?:>|```|\|)" body))
+                   "\n\n"
+                   "\n")))))
+      items))))
 
 (defn- node-to-markdown
   "Convert a JSoup node to Markdown recursively"
   ([^Node node depth]
    (node-to-markdown node depth false))
   ([^Node node depth preserve-whitespace?]
-   (cond (instance? TextNode node) (let [text (.getWholeText ^TextNode node)]
-                                     (if preserve-whitespace?
-                                       text
+   (cond (instance? TextNode node) (let [text (.getWholeText ^TextNode node)
+                                         text (if (and (not preserve-whitespace?) (at-block-start? ^TextNode node))
+                                                (str/replace-first text #"^[ \t\r\n]+" "")
+                                                text)]
+                                     (cond
+                                       preserve-whitespace? text
+                                       ;; a whitespace-only node at a block boundary is just
+                                       ;; source pretty-printing indentation, not content
+                                       (and (str/blank? text) (pretty-print-whitespace? ^TextNode node)) ""
+                                       :else
                                        (let [collapsed (str/replace text #"\s+" " ")
                                              trimmed (str/trim collapsed)]
                                          (if (str/blank? trimmed)
@@ -283,8 +465,15 @@
          contains-new-lines? (str/includes? (.wholeText ^Element element) "\n")
          pad-start (if contains-code? "" (if contains-new-lines? "```\n" "`"))
          pad-end (if contains-code? "" (if contains-new-lines? "\n```\n" "`"))
-         children (.childNodes element)
-         content (str/join (map #(node-to-markdown % (inc depth) preserve?) children))
+         ;; lists render their own items; skipping the generic child render avoids
+         ;; walking (and rendering) every list subtree twice
+         content (if (#{"ul" "ol"} tag-name) "" (render-children element depth preserve?))
+         ;; a block never starts with meaningful whitespace, and inline elements
+         ;; (notably links) pad themselves with spaces that would otherwise land
+         ;; at the start of an output line
+         content (if (and (block-node? element) (not (#{"pre" "code"} tag-name)))
+                   (str/triml content)
+                   content)
          href (.attr element "href")
          src (.attr element "src")
          alt (.attr element "alt")]
@@ -308,14 +497,31 @@
                   content
                   (when-not contains-code? PRESERVE_END_TOKEN)
                   pad-end)
-       "a" (if (str/blank? href) content (str " [" content "](" href ") "))
+       ;; links pad themselves with spaces so they do not glue onto adjacent text,
+       ;; but a link containing a block (an image, which emits its own blank lines)
+       ;; would otherwise be split across lines, and an anchor whose only content was
+       ;; a stripped svg has no text at all and is pure noise
+       "a" (let [inner (str/trim content)]
+             (if (or (str/blank? href) (str/blank? inner))
+               inner
+               (str " [" inner "](" href ") ")))
        "img" (str "![" alt "](" src ")\n\n")
        "figure" (str content "\n\n")
        "figcaption" (str "*" content "*\n\n")
-       "ul" (str content "\n")
-       "ol" (str content "\n")
-       "li" (str (apply str (repeat depth "  ")) "- " content "\n")
-       "blockquote" (str "> " (str/replace content #"\n" "\n> ") "\n\n")
+       "ul" (str (render-list element depth preserve?) "\n")
+       "ol" (str (render-list element depth preserve?) "\n")
+       ;; a stray <li> outside any list: bare bullet, no DOM-depth indentation
+       "li" (str "- " content "\n")
+       "dl" (str content "\n")
+       "dt" (str content "\n")
+       "dd" (str ": " (str/triml content) "\n")
+       "blockquote" (let [quoted (-> content
+                                     (map-unprotected collapse-blank-lines)
+                                     trim-outer-blank-lines)]
+                      (str (str/join "\n"
+                                     (map (fn [line] (if (str/blank? line) ">" (str "> " line)))
+                                          (str/split-lines quoted)))
+                           "\n"))
        "table" (if (layout-table? element) content (table-to-markdown element))
        "tr" content
        "td" content
@@ -346,8 +552,9 @@
         ;; Clean up non-preserved content
         cleaned (-> result-with-placeholders
                     (str/replace #"\n{3,}" "\n\n")
-                    (str/replace #" +\n" "\n")
-                    (str/replace #"\n +" "\n")
+                    (str/replace #"[ \t]+\n" "\n")
+                    (str/replace #"\n[ \t]+\n" "\n\n")
+                    (str/replace #"([^\n])\n(#{1,6} )" "$1\n\n$2")
                     (str/replace #"^\s+" "")
                     (str/replace #"\s+$" ""))
         ;; Restore preserved sections
