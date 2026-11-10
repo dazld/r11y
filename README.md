@@ -10,6 +10,7 @@ A lightning fast, GraalVM-compiled CLI tool for extracting readable content from
 
 - Extract main content from any URL as clean Markdown
 - **Preserves whitespace** in preformatted blocks
+- Correctly nested lists: sub-lists indent by marker width, and paragraphs, blockquotes, tables and code fences inside a list item stay part of that item; ordered lists keep their numbering
 - Rich metadata extraction with YAML frontmatter (title, author, date, description, canonical URL, hero image, favicon, sitename)
 - JSON-LD structured data support, including `@graph` walking and multi-script preference for article-typed objects
 - Markdown content negotiation — sends `Accept: text/markdown` and recognises markdown bodies even when servers mis-label them as `text/html` (e.g. Cloudflare-fronted docs)
@@ -193,7 +194,7 @@ r11y uses content extraction algorithms inspired by Mozilla's Readability and tr
 4. **Pattern filtering**: Filters elements based on class/id patterns to remove unlikely content
 5. **Link density analysis**: Removes navigation-heavy sections based on configurable threshold
 6. **Main content identification**: Finds the primary article/content element via a CSS-selector cascade with a body fallback if the chosen subtree turns out to be too small
-7. **Markdown conversion**: Converts cleaned HTML to clean Markdown with proper formatting for headings, lists, tables, code blocks, links, and images
+7. **Markdown conversion**: Converts cleaned HTML to clean Markdown with proper formatting for headings, lists (nested by list depth rather than DOM depth, with block content kept inside the item), ordered lists, tables, code blocks, links, and images
 
 ### Special handling
 
