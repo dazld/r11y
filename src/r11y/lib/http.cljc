@@ -18,5 +18,5 @@
   (let [opts (normalize-opts opts)]
     #?(:bb (-> (http/get url opts)
                (update :headers keywordize-headers))
-       :clj (-> (hato/get url opts)
+       :clj (-> (hato/get url (update opts :http-client #(merge {:redirect-policy :normal} %)))
                 (update :headers keywordize-headers)))))

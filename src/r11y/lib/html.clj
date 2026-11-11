@@ -912,10 +912,13 @@
                                 "text/markdown"
                                 header-content-type)
         frontmatter (when metadata (metadata-to-frontmatter metadata))
+        ;; Relative links and images resolve against where redirects ended up
+        base-url (or (some-> (:uri (or extraction-response original-response)) str)
+                     normalized-url)
         fallback-extract (fn []
                            (if metadata
                              (let [result (extract-content extraction-body
-                                                           :base-url normalized-url
+                                                           :base-url base-url
                                                            :format format
                                                            :link-density-threshold link-density-threshold
                                                            :with-metadata false)]
@@ -923,7 +926,7 @@
                                       :markdown (str frontmatter (:markdown result))
                                       :metadata metadata))
                              (extract-content extraction-body
-                                              :base-url normalized-url
+                                              :base-url base-url
                                               :format format
                                               :link-density-threshold link-density-threshold
                                               :with-metadata with-metadata)))]
