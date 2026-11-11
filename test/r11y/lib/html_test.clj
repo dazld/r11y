@@ -920,3 +920,24 @@
       (is (re-find #"(?m)^\s*[-*]\s+Apple" (:markdown result)))
       (is (re-find #"(?m)^\s*[-*]\s+Banana" (:markdown result)))
       (is (re-find #"(?m)^\s*[-*]\s+Cherry" (:markdown result))))))
+
+(deftest test-lazy-loaded-images
+  (let [html-str (slurp "test/fixtures/lazy-images.html")
+        result (html/extract-content html-str :base-url "https://site.example/gallery" :format :markdown)
+        md (:markdown result)]
+    (testing "Lazy URLs replace the shared data: placeholder"
+      (is (not (str/includes? md "data:")))
+      (is (str/includes? md "![One](https://site.example/wp-content/uploads/2026/02/one.jpg)"))
+      (is (str/includes? md "![Four](https://site.example/wp-content/uploads/2026/02/four.jpg)")))
+    (testing "A relative data-src is resolved against the base URL"
+      (is (str/includes? md "![Two](https://site.example/wp-content/uploads/2026/02/two.jpg)")))
+    (testing "data-srcset yields its widest candidate"
+      (is (str/includes? md "three-1200.jpg"))
+      (is (not (str/includes? md "three-400.jpg"))))
+    (testing "A real src is left alone"
+      (is (str/includes? md "normal.jpg"))
+      (is (not (str/includes? md "other.jpg"))))
+    (testing "Without w descriptors the last srcset candidate wins"
+      (let [doc (Jsoup/parse "<img src='' data-srcset='/a.jpg, /b.jpg'>")]
+        (html/promote-lazy-images doc)
+        (is (= "/b.jpg" (.attr (.selectFirst doc "img") "src")))))))

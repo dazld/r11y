@@ -77,6 +77,46 @@
     doc))
 
 ;; Cleaning pipeline functions
+(defn- placeholder-src?
+  "True when an img src carries no usable image: missing, blank or a data: URI."
+  [^String src]
+  (or (str/blank? src)
+      (str/starts-with? (str/lower-case (str/trim src)) "data:")))
+
+(defn- widest-srcset-url
+  "Pick the URL of the widest candidate in a srcset (`url 800w, url 1200w`).
+   Without `w` descriptors, the last candidate wins."
+  [^String srcset]
+  (let [candidates (->> (str/split (str/trim srcset) #",\s+")
+                        (keep (fn [c]
+                                (let [[url desc] (str/split (str/trim c) #"\s+" 2)]
+                                  (when-not (placeholder-src? url)
+                                    {:url url
+                                     :w   (some->> desc (re-find #"^(\d+)w") second parse-long)}))))
+                        vec)
+        with-width (filter :w candidates)]
+    (:url (if (seq with-width)
+            (apply max-key :w with-width)
+            (peek candidates)))))
+
+(defn promote-lazy-images
+  "Set src from the lazy-loading attributes (data-src, data-lazy-src,
+   data-original, then the widest of data-srcset / data-lazy-srcset) on every
+   img whose src is missing, blank or a data: URI. Other imgs are untouched."
+  [^Document doc]
+  (doseq [^Element elem (.select doc "img")]
+    (when (placeholder-src? (.attr elem "src"))
+      (let [direct (some #(let [v (str/trim (.attr elem %))]
+                            (when-not (placeholder-src? v) v))
+                         ["data-src" "data-lazy-src" "data-original"])
+            real (or direct
+                     (some #(let [v (.attr elem %)]
+                              (when-not (str/blank? v) (widest-srcset-url v)))
+                           ["data-srcset" "data-lazy-srcset"]))]
+        (when-not (str/blank? real)
+          (.attr elem "src" ^String real)))))
+  doc)
+
 (defn- rename-tag!
   "Rename element's tag and clear the now-redundant role attribute."
   [^Element elem ^String new-tag]
@@ -674,6 +714,7 @@
         raw-body-text-len (count (.text (.body doc)))
         ;; First pass: aggressive cleaning
         cleaned-doc-pass1 (-> (.clone doc)
+                              promote-lazy-images
                               (cond-> base-url (resolve-and-classify-links base-url))
                               clean-document
                               prune-unwanted-nodes
@@ -683,6 +724,7 @@
         ;; Second pass (conservative) if first pass fails
         main-element-pass2 (when (< (count (.text main-element-pass1)) 200)
                              (let [cleaned-doc-pass2 (-> (.clone doc)
+                                                         promote-lazy-images
                                                          (cond-> base-url (resolve-and-classify-links base-url))
                                                          clean-document
                                                          ;; Skip prune-unwanted-nodes
@@ -697,6 +739,7 @@
                                     raw-body-text-len)
                                  0.3))
                        (let [cleaned-body (-> (.clone doc)
+                                              promote-lazy-images
                                               (cond-> base-url (resolve-and-classify-links base-url))
                                               clean-document
                                               clean-empty-elements)]
