@@ -17,7 +17,7 @@ A lightning fast, GraalVM-compiled CLI tool for extracting readable content from
 - Removes decorative SVGs, spacer images, layout tables, and duplicated UI chrome
 - GitHub-optimized extraction (README files, blob content)
 - Configurable link density threshold for content filtering
-- Parse pre-rendered HTML from a file (`--content-file`) so a headless browser can do the fetching
+- Parse pre-rendered HTML (`--content-file`, file or `-` for stdin) so a headless browser can do the fetching, and fail loudly when that HTML is blank
 - Babashka-compatible — usable from `bb` scripts via `:git/tag` deps, no GraalVM required
 - Fast startup with GraalVM native compilation (~40ms)
 
@@ -109,9 +109,12 @@ r11y --link-density 0.3 https://example.com
 # GitHub blob URLs (automatically fetches raw content with metadata)
 r11y -m https://github.com/user/repo/blob/main/README.md
 
-# Parse HTML someone else fetched - a headless browser, a cache, a saved page.
+# Parse pre-rendered HTML from a file - a headless browser, a cache, a saved page.
 # The URL is still used for metadata, relative links and content negotiation.
 r11y --content-file rendered.html https://example.com
+
+# ...or pipe it in, which avoids the temp file entirely
+browser_dump_html | r11y -f - https://example.com
 
 # Show help
 r11y --help
@@ -121,7 +124,9 @@ r11y --help
 
 - `-m, --with-metadata` - Include YAML frontmatter with metadata (title, author, date, description, etc.)
 - `-l, --link-density N` - Link density threshold 0-1 (default: 0.5). Lower values are more aggressive at filtering link-heavy content.
-- `-f, --content-file PATH` - Extract from the HTML in PATH instead of fetching the URL. Use this when the page needs JavaScript or a bot challenge you cannot do with plain HTTP: render it in a headless browser, write the DOM to a file, hand it over. The URL argument is still required and still drives metadata.
+- `-f, --content-file PATH` - Extract from the HTML in PATH instead of fetching the URL. Use this when the page needs JavaScript or a bot challenge you cannot do with plain HTTP: render it in a headless browser, hand the DOM over, and let r11y parse it. `PATH` = `-` reads the HTML from **stdin** (no temp file; remember to close stdin, or the process waits). The URL argument is still required and still drives metadata.
+  - Caller-supplied HTML is read strictly: blank input — empty or whitespace only, from stdin or a file — exits 1 with `no HTML on stdin` / `file contains no HTML: PATH`, rather than exiting 0 with an empty document. A blank page from a browser that rendered nothing is a failure, and it should not look like a successful extract of nothing.
+  - `-f -` with a terminal on stdin fails immediately (`stdin is a terminal: pipe the HTML in`) instead of waiting for a Ctrl-D nobody intended to press.
 - `-v, --version` - Show version
 - `-h, --help` - Show help message
 

@@ -15,6 +15,7 @@
   (println "  -l, --link-density N   Link density threshold 0-1 (default: 0.5)")
   (println "  -m, --with-metadata    Include YAML frontmatter with metadata")
   (println "  -f, --content-file P   Parse the HTML in P instead of fetching <url>")
+  (println "                         (use P = - to read the HTML from stdin)")
   (println "                         (<url> is still used for metadata and relative links)")
   (println "  -v, --version          Show version")
   (println "  -h, --help             Show this help message")
@@ -23,7 +24,8 @@
   (println "  r11y https://example.com")
   (println "  r11y --link-density 0.3 https://example.com")
   (println "  r11y --with-metadata https://example.com")
-  (println "  r11y --content-file rendered.html https://example.com"))
+  (println "  r11y --content-file rendered.html https://example.com")
+  (println "  browser_dump_html | r11y -f - https://example.com"))
 
 (defn parse-args
   [args]
@@ -58,6 +60,33 @@
                       (assoc opts :error "Multiple URLs provided. Only one URL is allowed.")
                       (recur rest-args (assoc opts :url arg))))))))
 
+(defn- console-connected?
+  "True when this process is attached to a terminal. Defensive: some GraalVM
+   images restrict System/console rather than returning nil."
+  []
+  (try
+    (some? (System/console))
+    (catch Throwable _ false)))
+
+(defn read-content
+  "HTML to extract when the caller supplies it: a file path, or stdin for -.
+
+   Caller-supplied content is read strictly. Blank input is an error, not a
+   successful extraction of nothing: a caller that piped a blank page (a browser that
+   rendered nothing, a truncated file) would otherwise get exit 0 and an empty
+   document, which is indistinguishable from a page that genuinely has no prose.
+   The plain-URL path is untouched -- this only governs --content-file."
+  [path]
+  (let [from-stdin? (= "-" path)]
+    (when (and from-stdin? (console-connected?))
+      (throw (Exception. "stdin is a terminal: pipe the HTML in (r11y -f - URL < page.html), or pass a file path")))
+    (let [content (if from-stdin? (slurp *in*) (slurp path))]
+      (when (str/blank? content)
+        (throw (Exception. (if from-stdin?
+                             "no HTML on stdin"
+                             (str "file contains no HTML: " path)))))
+      content)))
+
 (defn -main
   [& args]
   (let [opts (parse-args args)]
@@ -82,7 +111,7 @@
                                          (:link-density-threshold opts)
                                          :with-metadata (:with-metadata opts)
                                          (when-let [path (:content-file opts)]
-                                           [:content (slurp path)
+                                           [:content (read-content path)
                                             :content-type "text/html"]))]
                        (println (:markdown result))
                        (System/exit 0))
