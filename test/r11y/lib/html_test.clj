@@ -1003,3 +1003,21 @@
 
   (testing "a stray li outside a list gets a bare bullet"
     (is (= "- orphan" (str/trim (html/html-to-markdown "<div><li>orphan</li></div>"))))))
+
+(deftest test-list-with-non-li-items
+  (testing "div items inside a ul are kept as list items"
+    (let [md (html/html-to-markdown
+              (str "<ul class='loop'>"
+                   "<div><h5>Bad weather?</h5><p>We cook in any weather.</p></div>"
+                   "<div><h5>Vegetarian?</h5><p>Always on the menu.</p></div>"
+                   "<div> </div>"
+                   "</ul>"))]
+      (is (str/includes? md "Bad weather?"))
+      (is (str/includes? md "We cook in any weather."))
+      (is (str/includes? md "Always on the menu."))
+      (is (= 2 (count (re-seq #"(?m)^- " md))))))
+  (testing "a wrapper holding li elements gives its items, not a bullet of its own"
+    (let [md (html/html-to-markdown "<ul><div><li>one</li><li>two</li></div></ul>")]
+      (is (re-find #"(?m)^- one$" md))
+      (is (re-find #"(?m)^- two$" md))
+      (is (= 2 (count (re-seq #"(?m)^- " md)))))))
