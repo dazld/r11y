@@ -35,6 +35,29 @@
 
 (def display-none (Pattern/compile "display:\\s*none" Pattern/CASE_INSENSITIVE))
 
+(def consent-manager-selector
+  "The containers of widely used cookie-consent managers (Complianz, Cookiebot,
+   OneTrust, Usercentrics, Borlabs, CookieYes, Cookie Notice, Moove GDPR,
+   iubenda, Quantcast, Didomi, Klaro, TrustArc, Osano, CookieConsent). A banner
+   is often longer than a page's own text and is hidden by a class rather than
+   an inline style, so it is removed by its markup whatever its length."
+  (str/join ", "
+            ["[id^=cmplz-]" "[class*=cmplz-]"
+             "[id^=CybotCookiebot]"
+             "#onetrust-consent-sdk" "#onetrust-banner-sdk" "#onetrust-pc-sdk"
+             "#usercentrics-root" "#usercentrics-cmp-ui"
+             "[id^=BorlabsCookie]" "[class*=_brlbs-]"
+             "[class*=cky-consent]" ".cky-modal" ".cky-preference-center"
+             "#cookie-notice" "#cookie-law-info-bar"
+             "#moove_gdpr_cookie_info_bar" "#moove_gdpr_cookie_modal"
+             "#iubenda-cs-banner"
+             "#qc-cmp2-container" ".qc-cmp2-container"
+             "#didomi-host"
+             ".klaro"
+             "#truste-consent-track" "#consent_blackbar"
+             ".osano-cm-window" ".osano-cm-dialog"
+             ".cc-window" "#cc-main" ".cc_banner"]))
+
 ;; Helper functions
 
 (defn get-inner-text [^Element e] (str/trim (.text e)))
@@ -141,6 +164,8 @@
   "Initial cleaning of the document."
   [^Document doc]
   (standardize-semantic-divs doc)
+  (doseq [elem (.select doc ^String consent-manager-selector)]
+    (.remove elem))
   (doseq [elem (.select
                 doc
                 "script, style, noscript, iframe, object, embed, footer, header, nav, head link, aside, svg, canvas, applet, input, button, select, textarea, label, fieldset, legend, dialog")]

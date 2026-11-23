@@ -941,3 +941,21 @@
       (let [doc (Jsoup/parse "<img src='' data-srcset='/a.jpg, /b.jpg'>")]
         (html/promote-lazy-images doc)
         (is (= "/b.jpg" (.attr (.selectFirst doc "img") "src")))))))
+
+(deftest test-consent-banners-removed
+  (let [banner (str "<div id='cmplz-cookiebanner-1' class='cmplz-cookiebanner cmplz-hidden'>"
+                    (apply str (repeat 40 "Wir verwenden Cookies, um dir ein optimales Erlebnis zu bieten. "))
+                    "</div>")]
+    (testing "A long, class-hidden banner is not taken as an image-only page's content"
+      (let [page (str "<html><body><main id='content'><h1>Galerie</h1>"
+                      "<img src='https://example.com/a.jpg' alt='Pizza'></main>"
+                      banner "</body></html>")
+            md   (:markdown (html/extract-content page :format :markdown))]
+        (is (not (str/includes? md "Cookies")))
+        (is (str/includes? md "https://example.com/a.jpg"))))
+    (testing "Text about cookies outside a consent manager stays"
+      (let [page (str "<html><body><article><p>"
+                      (apply str (repeat 10 "Our cookies are baked fresh every morning with butter and love. "))
+                      "</p></article></body></html>")
+            md   (:markdown (html/extract-content page :format :markdown))]
+        (is (str/includes? md "cookies are baked"))))))
