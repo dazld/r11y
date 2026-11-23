@@ -1156,3 +1156,9 @@
   (testing "an ol starting past 1 placed directly in a list is separated the same way"
     (is (= "- x\n\n  3. a"
            (str/trim (html/html-to-markdown "<ul><li>x</li><ol start=\"3\"><li>a</li></ol></ul>"))))))
+
+(deftest test-image-link-label-is-escaped
+  (testing "brackets and backslashes in a label cannot end it early"
+    (is (= "See  ![x\\] (y\\\\z](/x.jpg)  more"
+           (str/trim (html/html-to-markdown
+                      "<p>See <a href='/x.jpg' aria-label='x] (y\\z'></a> more</p>"))))))
