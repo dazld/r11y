@@ -52,71 +52,87 @@
                (nil? (.selectFirst a "img")))
       (str/trim (or (not-empty (.attr a "aria-label")) (.attr a "title"))))))
 
-(def consent-manager-selector
-  "The banner and dialog containers of widely used cookie-consent managers,
-   cross-checked against the DuckDuckGo autoconsent and Consent-O-Matic rule
-   sets. A banner is often longer than a page's own text and is hidden by a
-   class rather than an inline style, so it is removed by its markup whatever
-   its length. Each entry names a container exactly: a prefix or substring match
-   also hits the manager's other markup, such as Complianz's cookie-policy page
+(def ^:private consent-manager-ids
+  "Element ids of the banner and dialog containers of widely used cookie-consent
+   managers, cross-checked against the DuckDuckGo autoconsent and Consent-O-Matic
+   rule sets. Each names a container exactly: a prefix or substring match also
+   hits the manager's other markup, such as Complianz's cookie-policy page
    (`#cmplz-document`) or the embeds Borlabs blocks (`._brlbs-block-content`)."
-  (str/join ", "
-            [;; Complianz
-             "#cmplz-cookiebanner-container" ".cmplz-cookiebanner" "#cmplz-manage-consent"
-             ;; Cookiebot
-             "#CybotCookiebotDialog"
-             ;; OneTrust
-             "#onetrust-consent-sdk" "#onetrust-banner-sdk" "#onetrust-pc-sdk"
-             ;; Usercentrics
-             "#usercentrics-root" "#usercentrics-cmp-ui"
-             ;; Borlabs
-             "#BorlabsCookieBox" ".brlbs-cmpnt-dialog"
-             ;; CookieYes
-             ".cky-consent-container" ".cky-overlay" ".cky-modal" "#cky-consent"
-             ;; Cookie Notice, CookieLawInfo (GDPR Cookie Consent)
-             "#cookie-notice" "#cookie-law-info-bar" "#cliSettingsPopup"
-             ;; Moove GDPR
-             "#moove_gdpr_cookie_info_bar" "#moove_gdpr_cookie_modal"
-             ;; iubenda
-             "#iubenda-cs-banner"
-             ;; Quantcast
-             "#qc-cmp2-container" ".qc-cmp-ui-container"
-             ;; Didomi
-             "#didomi-host"
-             ;; Klaro
-             "#klaro"
-             ;; TrustArc
-             "#truste-consent-track" "#truste-consent-content" "#consent_blackbar"
-             ;; Osano
-             ".osano-cm-window" ".osano-cm-dialog"
-             ;; CookieConsent
-             ".cc-window" "#cc-main" ".cc_banner"
-             ;; Axeptio
-             ".axeptio_widget" ".axeptio_mount"
-             ;; consentmanager
-             "#cmpbox" "#cmpbox2" "#ncmp__tool"
-             ;; CookieFirst
-             "#cookiefirst-root" ".cookiefirst-root"
-             ;; Sourcepoint
-             "[id^=sp_message_container_]"
-             ;; tarteaucitron
-             "#tarteaucitronRoot"
-             ;; Real Cookie Banner
-             "div[consent-skip-blocker=1][data-bg]"
-             ;; Blogger
-             "#cookieChoiceInfo"]))
+  #{;; Complianz
+    "cmplz-cookiebanner-container" "cmplz-manage-consent"
+    ;; Cookiebot
+    "CybotCookiebotDialog"
+    ;; OneTrust
+    "onetrust-consent-sdk" "onetrust-banner-sdk" "onetrust-pc-sdk"
+    ;; Usercentrics
+    "usercentrics-root" "usercentrics-cmp-ui"
+    ;; Borlabs
+    "BorlabsCookieBox"
+    ;; CookieYes
+    "cky-consent"
+    ;; Cookie Notice, CookieLawInfo (GDPR Cookie Consent)
+    "cookie-notice" "cookie-law-info-bar" "cliSettingsPopup"
+    ;; Moove GDPR
+    "moove_gdpr_cookie_info_bar" "moove_gdpr_cookie_modal"
+    ;; iubenda
+    "iubenda-cs-banner"
+    ;; Quantcast
+    "qc-cmp2-container"
+    ;; Didomi
+    "didomi-host"
+    ;; Klaro
+    "klaro"
+    ;; TrustArc
+    "truste-consent-track" "truste-consent-content" "consent_blackbar"
+    ;; CookieConsent
+    "cc-main"
+    ;; consentmanager
+    "cmpbox" "cmpbox2" "ncmp__tool"
+    ;; CookieFirst
+    "cookiefirst-root"
+    ;; tarteaucitron
+    "tarteaucitronRoot"
+    ;; Blogger
+    "cookieChoiceInfo"})
+
+(def ^:private consent-manager-classes
+  "Class names of consent-manager containers, on the same terms as
+   `consent-manager-ids`."
+  #{"cmplz-cookiebanner" "brlbs-cmpnt-dialog"
+    "cky-consent-container" "cky-overlay" "cky-modal"
+    "qc-cmp-ui-container"
+    "osano-cm-window" "osano-cm-dialog"
+    "cc-window" "cc_banner"
+    "axeptio_widget" "axeptio_mount"
+    "cookiefirst-root"})
 
 (def ^:private page-level-tags
   "Elements that hold a whole page, never removed as a consent banner even when
    a manager marks them."
   #{"html" "head" "body" "main" "article"})
 
+(defn consent-manager?
+  "True when `elem` is the banner or dialog container of a known cookie-consent
+   manager. Sourcepoint numbers its container ids, and Real Cookie Banner names
+   its root only by attributes."
+  [^Element elem]
+  (let [id (.id elem)]
+    (and (not (page-level-tags (.tagName elem)))
+         (or (contains? consent-manager-ids id)
+             (str/starts-with? id "sp_message_container_")
+             (boolean (some consent-manager-classes (.classNames elem)))
+             (and (= "div" (.tagName elem))
+                  (= "1" (.attr elem "consent-skip-blocker"))
+                  (.hasAttr elem "data-bg"))))))
+
 (defn remove-consent-managers
-  "Remove the cookie-consent banners and dialogs of `doc` (`consent-manager-selector`)."
+  "Remove the cookie-consent banners and dialogs of `doc` (`consent-manager?`), in
+   one pass over its elements. A banner is often longer than a page's own text
+   and is hidden by a class rather than an inline style, so it is removed by its
+   markup whatever its length."
   [^Document doc]
-  (doseq [^Element elem (.select doc ^String consent-manager-selector)]
-    (when-not (page-level-tags (.tagName elem))
-      (.remove elem)))
+  (doseq [^Element elem (vec (filter consent-manager? (.getAllElements doc)))]
+    (.remove elem))
   doc)
 
 ;; Helper functions
@@ -225,7 +241,6 @@
   "Initial cleaning of the document."
   [^Document doc]
   (standardize-semantic-divs doc)
-  (remove-consent-managers doc)
   (doseq [elem (.select
                 doc
                 "script, style, noscript, iframe, object, embed, footer, header, nav, head link, aside, svg, canvas, applet, input, button, select, textarea, label, fieldset, legend, dialog")]
@@ -1057,14 +1072,15 @@
   "Extract content from HTML. Input can be a String or byte array.
    When passing bytes, JSoup will auto-detect the charset."
   [html-input & {:keys [format link-density-threshold base-url with-metadata] :or {format :html link-density-threshold default-link-density-threshold with-metadata false}}]
-  (let [doc (if (bytes? html-input)
-              (parse-html-bytes html-input base-url)
-              (Jsoup/parse ^String html-input))
+  (let [doc (remove-consent-managers
+             (if (bytes? html-input)
+               (parse-html-bytes html-input base-url)
+               (Jsoup/parse ^String html-input)))
         metadata (when with-metadata (extract-metadata doc base-url))
         frontmatter (when with-metadata (metadata-to-frontmatter metadata))
         ;; Body text for the coverage heuristic, measured before cleaning but
         ;; without consent banners, which can outweigh the page's own text
-        raw-body-text-len (count (.text (.body (remove-consent-managers (.clone doc)))))
+        raw-body-text-len (count (.text (.body doc)))
         ;; First pass: aggressive cleaning
         cleaned-doc-pass1 (-> (.clone doc)
                               promote-lazy-images
