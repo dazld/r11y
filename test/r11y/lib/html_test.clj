@@ -1143,3 +1143,16 @@
   (testing "a nested list inside a wrapper is not flattened into its parent"
     (is (= "- a\n  - b\n- c"
            (str/trim (html/html-to-markdown "<ul><div><li>a<ul><li>b</li></ul></li><li>c</li></div></ul>"))))))
+
+(deftest test-ordered-sublist-not-starting-at-one
+  (testing "an ol starting past 1 is separated from the text before it by a blank line"
+    (is (= "- x\n\n  3. a"
+           (str/trim (html/html-to-markdown "<ul><li>x<ol start=\"3\"><li>a</li></ol></li></ul>"))))
+    (is (= "Intro\n\n2. a"
+           (str/trim (html/html-to-markdown "<div>Intro<ol start=\"2\"><li>a</li></ol></div>")))))
+  (testing "an ol starting at 1 still attaches tightly"
+    (is (= "- x\n  1. a"
+           (str/trim (html/html-to-markdown "<ul><li>x<ol><li>a</li></ol></li></ul>")))))
+  (testing "an ol starting past 1 placed directly in a list is separated the same way"
+    (is (= "- x\n\n  3. a"
+           (str/trim (html/html-to-markdown "<ul><li>x</li><ol start=\"3\"><li>a</li></ol></ul>"))))))
