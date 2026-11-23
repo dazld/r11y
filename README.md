@@ -144,21 +144,36 @@ image: https://media.wired.com/photos/.../NeuralIntelligence-crSamanthaMash-Lede
 
 ## Performance
 
-Quick comparison against three readability extractors on representative URLs. 5 runs each, wall-clock seconds (mean ± stdev):
+End to end, fetch included: the native binary against two other readability extractors, 5 runs each after a warm-up, wall-clock seconds (mean ± stdev). Measured on an Apple Silicon Mac (macOS arm64 native build).
 
-| URL | r11y | [defuddle][def] | [trafilatura][trf] | [readability-rust][rdr] |
-|-----|------|-----------------|--------------------|-------------------------|
-| Long essay (Orwell, ~8k words) | **0.43 ± 0.09** | 0.74 ± 0.18 | 0.99 ± 0.14 | 0.57 ± 0.14 |
-| Docs page (Cloudflare)         | **0.26 ± 0.06** | 0.54 ± 0.02 | 0.53 ± 0.01 | 0.36 ± 0.04 |
-| Next.js landing page           | 0.30 ± 0.04     | 0.63 ± 0.04 | 0.52 ± 0.03 | **0.27 ± 0.05** |
+| Page | r11y | [defuddle][def] 0.19 | [trafilatura][trf] 2.3 |
+|------|------|----------------------|------------------------|
+| Long essay (Orwell, ~8k words) | **0.34 ± 0.08** | 0.59 ± 0.11 | 0.64 ± 0.32 |
+| Docs page (Cloudflare Workers)  | **0.18 ± 0.01** | 0.51 ± 0.01 | 0.36 ± 0.01 |
+| Landing page (Next.js)          | **0.18 ± 0.03** | 0.48 ± 0.02 | 0.42 ± 0.04 |
+| Wikipedia article (Clojure)     | **0.38 ± 0.02** | 0.93 ± 0.02 | 0.67 ± 0.21 |
 
-r11y is consistently **1.5–2×** faster than the typical Node and Python alternatives. Against `readability-rust` r11y is ahead on larger pages, roughly tied on short ones.
+r11y is **1.7–2.8×** faster than defuddle and **1.7–2.3×** faster than trafilatura on these pages. Network variance dominates the stdev, so the gap in processing time is wider than the table shows.
 
-Wall-clock includes the network fetch, so the processing-time gap is wider than the table shows. Network variance dominates the stdev. `readability-rust` doesn't fetch URLs natively and was benchmarked as `curl URL | readability-rust -i - -f text`.
+Processing alone, without the network, is a few milliseconds for a typical page: `extract-content` on saved copies of the pages above (JVM, median of 20 runs after warm-up).
+
+| Page | HTML size | Median |
+|------|-----------|--------|
+| Long essay (Orwell)         | 100 KB | 12.6 ms |
+| Docs page (Cloudflare)      | 214 KB | 18.5 ms |
+| Landing page (Next.js)      | 266 KB |  9.3 ms |
+| Wikipedia article (Clojure) | 546 KB | 63.1 ms |
+
+To reproduce:
+
+```bash
+bb bench/compare.bb [url ...]               # end to end; tools not on the PATH are skipped
+bench/fetch.sh pages <url> [url ...]        # save pages, then
+clojure -M bench/extract.clj pages          # processing time only
+```
 
 [def]: https://github.com/kepano/defuddle
 [trf]: https://trafilatura.readthedocs.io/
-[rdr]: https://github.com/dreampuf/readability-rust
 
 ## Development
 
