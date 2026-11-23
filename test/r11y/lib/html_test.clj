@@ -1162,3 +1162,18 @@
     (is (= "See  ![x\\] (y\\\\z](/x.jpg)  more"
            (str/trim (html/html-to-markdown
                       "<p>See <a href='/x.jpg' aria-label='x] (y\\z'></a> more</p>"))))))
+
+(deftest test-wiki-file-page-links-are-not-images
+  (let [page (str "<html><body><main><h1>Cats</h1>"
+                  "<p>" (apply str (repeat 8 "Cats are small mammals kept as pets. ")) "</p>"
+                  "<a href='/wiki/File:Cat.jpg' title='Enlarge'></a>"
+                  "<a href='/wiki/Datei:Katze.png' title='Vergroessern'></a>"
+                  "<a href='/w/index.php?title=File:Cat.jpg&x=1.jpg' title='Enlarge'></a>"
+                  "<a href='/uploads/real.jpg' title='Real'></a>"
+                  "</main></body></html>")
+        result (html/extract-content page :format :markdown :base-url "https://example.com/")
+        md (:markdown result)]
+    (is (not (str/includes? md "File:Cat.jpg")))
+    (is (not (str/includes? md "Datei:Katze.png")))
+    (is (str/includes? md "![Real](https://example.com/uploads/real.jpg)"))
+    (is (= ["https://example.com/uploads/real.jpg"] (mapv :url (:images result))))))

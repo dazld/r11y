@@ -40,6 +40,11 @@
 
 (def ^:private image-href (Pattern/compile "\\.(?:jpe?g|png|gif|webp|avif|svg)(?:[?#].*)?$" Pattern/CASE_INSENSITIVE))
 
+(def ^:private wiki-file-page
+  "A namespaced page (`/File:Cat.jpg`, `/Datei:Cat.jpg`) or a `title=File:...`
+   query: the href of a wiki's image description page, which is HTML."
+  (Pattern/compile "(?:/[A-Za-z]+:[^/?#]+(?:[?#].*)?$|[?&]title=[A-Za-z]+:)"))
+
 (defn- escape-link-label
   "Backslash-escape the characters that end or open a Markdown link label."
   [label]
@@ -48,11 +53,13 @@
 (defn- image-link-label
   "The label of `a` when it is a textless link to an image file (a gallery's
    lightbox link), else nil. The link is the only reference to that image, so
-   it is an image of the page: its alt comes from aria-label or title."
+   it is an image of the page: its alt comes from aria-label or title. A wiki's
+   file description page is HTML, not an image, whatever its name ends in."
   [^Element a]
   (let [href (.attr a "href")]
     (when (and (not (str/blank? href))
                (.find (.matcher ^Pattern image-href href))
+               (not (.find (.matcher ^Pattern wiki-file-page href)))
                (str/blank? (.text a))
                (nil? (.selectFirst a "img")))
       (str/trim (or (not-empty (.attr a "aria-label")) (.attr a "title"))))))
