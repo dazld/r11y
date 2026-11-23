@@ -1135,3 +1135,11 @@
   (testing "a heading is rendered as a heading"
     (is (= "- ### Title\n- x"
            (str/trim (html/html-to-markdown "<ul><h3>Title</h3><li>x</li></ul>"))))))
+
+(deftest test-wrappers-nested-inside-a-list
+  (testing "li elements two wrappers deep are the list's own items"
+    (is (= "- a\n- b"
+           (str/trim (html/html-to-markdown "<ul><div><div><li>a</li><li>b</li></div></div></ul>")))))
+  (testing "a nested list inside a wrapper is not flattened into its parent"
+    (is (= "- a\n  - b\n- c"
+           (str/trim (html/html-to-markdown "<ul><div><li>a<ul><li>b</li></ul></li><li>c</li></div></ul>"))))))
