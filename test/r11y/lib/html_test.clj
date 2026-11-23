@@ -1041,3 +1041,38 @@
     (testing "the image links are listed among the images"
       (is (= #{"https://example.com/uploads/one.jpg" "https://example.com/uploads/two.webp?v=2"}
              (set (map :url (:images result))))))))
+
+(deftest test-consent-selectors-spare-content
+  (let [para (apply str (repeat 8 "This text explains which cookies the site sets and why. "))]
+    (testing "a consent manager's cookie-policy page keeps its text"
+      (let [md (:markdown (html/extract-content
+                           (str "<html><body><main><h1>Cookie policy</h1>"
+                                "<div id='cmplz-document' class='cmplz-document cookie-statement'><p>" para "</p></div>"
+                                "</main></body></html>")
+                           :format :markdown))]
+        (is (str/includes? md "explains which cookies"))))
+    (testing "a manager's class on the body does not remove the page"
+      (let [md (:markdown (html/extract-content
+                           (str "<html><body class='cmplz-banner-active cky-consent-container'><article><p>" para "</p></article></body></html>")
+                           :format :markdown))]
+        (is (str/includes? md "explains which cookies"))))
+    (testing "an embed a consent manager blocks is not taken for its banner"
+      (let [md (:markdown (html/extract-content
+                           (str "<html><body><article><p>" para "</p>"
+                                "<div class='_brlbs-block-content'><p>Load the map to see our location.</p></div>"
+                                "</article></body></html>")
+                           :format :markdown))]
+        (is (str/includes? md "Load the map"))))))
+
+(deftest test-coverage-ignores-consent-banners
+  (testing "a long banner does not push an article under the coverage threshold"
+    (let [md (:markdown (html/extract-content
+                         (str "<html><body>"
+                              "<div class='promo'>Spring offers in our shop</div>"
+                              "<article><p>" (apply str (repeat 6 "The article itself, about baking bread at home. ")) "</p></article>"
+                              "<div id='onetrust-consent-sdk'><p>"
+                              (apply str (repeat 60 "We and our partners store and access information on your device. "))
+                              "</p></div></body></html>")
+                         :format :markdown))]
+      (is (str/includes? md "baking bread"))
+      (is (not (str/includes? md "Spring offers"))))))
