@@ -1121,3 +1121,17 @@
               "<div class='gallery'><a href='/a.jpg'></a> <a href='/b.jpg'></a></div>")]
       (is (re-find #"(?m)^!\[\]\(/a\.jpg\)$" md))
       (is (re-find #"(?m)^!\[\]\(/b\.jpg\)$" md)))))
+
+(deftest test-non-li-elements-directly-in-a-list
+  (testing "an image keeps its markup"
+    (is (= "- ![pic](/a.png)\n- x"
+           (str/trim (html/html-to-markdown "<ul><img src='/a.png' alt='pic'><li>x</li></ul>")))))
+  (testing "a link stays a link"
+    (is (= "- [Link one](/x)\n- x"
+           (str/trim (html/html-to-markdown "<ul><a href='/x'>Link one</a><li>x</li></ul>")))))
+  (testing "a run of inline nodes is one item, keeping its formatting"
+    (is (= "- **Bold** intro\n- A"
+           (str/trim (html/html-to-markdown "<ul><b>Bold</b> intro<li>A</li></ul>")))))
+  (testing "a heading is rendered as a heading"
+    (is (= "- ### Title\n- x"
+           (str/trim (html/html-to-markdown "<ul><h3>Title</h3><li>x</li></ul>"))))))

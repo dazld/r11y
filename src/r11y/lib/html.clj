@@ -447,6 +447,9 @@
 (def ^:private transparent-container-tags
   #{"div" "section" "article" "main" "figure"})
 
+(def ^:private list-wrapper-tags
+  (conj transparent-container-tags "span"))
+
 (defn- starts-with-list?
   "True when a child element's first block-level content is itself a list, looking
    through the transparent containers (<div>, <section>, ...) that publishers wrap
@@ -497,24 +500,69 @@
   [^Element li depth preserve-whitespace?]
   (render-children li depth preserve-whitespace?))
 
+(defn- holds-li?
+  "True when `el` has an li child, or a wrapper child (div, span, ...) that does,
+   at any depth. A ul/ol child is never entered: its li elements are its own."
+  [^Element el]
+  (boolean
+   (some (fn [^Element c]
+           (let [tag (.tagName c)]
+             (or (= "li" tag)
+                 (and (not (list-tags tag))
+                      (list-wrapper-tags tag)
+                      (holds-li? c)))))
+         (.children el))))
+
+(defn- inline-list-node?
+  "True for a node that belongs to a run of inline content sitting directly in a
+   list: text, or an element that is neither an li, a list, a block, nor a
+   wrapper holding li elements."
+  [^Node n]
+  (or (not (instance? Element n))
+      (let [tag (.tagName ^Element n)]
+        (not (or (= "li" tag)
+                 (list-tags tag)
+                 (block-tags tag)
+                 (holds-li? n))))))
+
+(defn- list-run-content?
+  "True when a run of inline nodes shows something: text, an image, or a
+   textless link to an image file."
+  [nodes]
+  (boolean
+   (some (fn [^Node n]
+           (if (instance? TextNode n)
+             (not (str/blank? (.text ^TextNode n)))
+             (and (instance? Element n)
+                  (or (not (str/blank? (.text ^Element n)))
+                      (= "img" (.tagName ^Element n))
+                      (.selectFirst ^Element n "img")
+                      (and (= "a" (.tagName ^Element n))
+                           (image-link-label n))))))
+         nodes)))
+
 (defn- list-items
-  "The items of `list-el`, as nodes: its li children, any run of text sitting
-   directly in the list, and any other element child that carries content. Page
-   builders fill a ul with div items, and a browser shows them, so they are
-   items too. A wrapper that holds li elements gives those instead of itself. A
-   ul/ol child is returned as it is, never spliced: `render-list` nests it under
-   the item before it."
+  "The items of `list-el`, as nodes: its li children, each run of inline content
+   sitting directly in the list (one item, as a `{:run nodes}` map), and any
+   other element child that carries content. Page builders fill a ul with div
+   items, and a browser shows them, so they are items too. A wrapper that holds
+   li elements, at any depth, gives those instead of itself. A ul/ol child is
+   returned as it is, never spliced: `render-list` nests it under the item before
+   it."
   [^Element list-el]
-  (mapcat (fn [^Node child]
-            (cond
-              (instance? TextNode child) (when-not (str/blank? (.text ^TextNode child)) [child])
-              (not (instance? Element child)) []
-              (list-tags (.tagName ^Element child)) [child]
-              (= "li" (.tagName ^Element child)) [child]
-              (some #(= "li" (.tagName ^Element %)) (.children ^Element child)) (list-items child)
-              (or (not (str/blank? (.text ^Element child))) (.selectFirst ^Element child "img")) [child]
-              :else []))
-          (.childNodes list-el)))
+  (mapcat (fn [group]
+            (if (inline-list-node? (first group))
+              (when (list-run-content? group) [{:run group}])
+              (mapcat (fn [^Element child]
+                        (let [tag (.tagName child)]
+                          (cond
+                            (list-tags tag) [child]
+                            (= "li" tag) [child]
+                            (holds-li? child) (list-items child)
+                            (or (not (str/blank? (.text child))) (.selectFirst child "img")) [child]
+                            :else [])))
+                      group)))
+          (partition-by inline-list-node? (.childNodes list-el))))
 
 (defn- list-element? [n]
   (and (instance? Element n) (contains? list-tags (.tagName ^Element n))))
@@ -535,9 +583,10 @@
    a single newline, as a list nested inside an li is."
   [[head & sublists] depth preserve-whitespace?]
   (let [own (cond
-              (instance? TextNode head) (str/trim (node-to-markdown head (inc depth) preserve-whitespace?))
-              (list-element? head) (node-to-markdown head (inc depth) preserve-whitespace?)
-              :else (list-item-body head depth preserve-whitespace?))]
+              (map? head) (str/trim (str/join (map #(node-to-markdown % (inc depth) preserve-whitespace?)
+                                                   (:run head))))
+              (= "li" (.tagName ^Element head)) (list-item-body head depth preserve-whitespace?)
+              :else (str/trim (node-to-markdown head (inc depth) preserve-whitespace?)))]
     (reduce (fn [acc sublist]
               (str acc (if (str/ends-with? acc "\n") "" "\n")
                    (node-to-markdown sublist (inc depth) preserve-whitespace?)))
