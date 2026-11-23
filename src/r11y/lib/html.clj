@@ -38,6 +38,20 @@
 
 (def display-none (Pattern/compile "display:\\s*none" Pattern/CASE_INSENSITIVE))
 
+(def ^:private image-href (Pattern/compile "\\.(?:jpe?g|png|gif|webp|avif|svg)(?:[?#].*)?$" Pattern/CASE_INSENSITIVE))
+
+(defn- image-link-label
+  "The label of `a` when it is a textless link to an image file (a gallery's
+   lightbox link), else nil. The link is the only reference to that image, so
+   it is an image of the page: its alt comes from aria-label or title."
+  [^Element a]
+  (let [href (.attr a "href")]
+    (when (and (not (str/blank? href))
+               (.find (.matcher ^Pattern image-href href))
+               (str/blank? (.text a))
+               (nil? (.selectFirst a "img")))
+      (str/trim (or (not-empty (.attr a "aria-label")) (.attr a "title"))))))
+
 (def consent-manager-selector
   "The containers of widely used cookie-consent managers (Complianz, Cookiebot,
    OneTrust, Usercentrics, Borlabs, CookieYes, Cookie Notice, Moove GDPR,
@@ -581,9 +595,11 @@
        ;; would otherwise be split across lines, and an anchor whose only content was
        ;; a stripped svg has no text at all and is pure noise
        "a" (let [inner (str/trim content)]
-             (if (or (str/blank? href) (str/blank? inner))
-               inner
-               (str " [" inner "](" href ") ")))
+             (if-let [label (image-link-label element)]
+               (str "![" label "](" href ")\n\n")
+               (if (or (str/blank? href) (str/blank? inner))
+                 inner
+                 (str " [" inner "](" href ") "))))
        "img" (str "![" alt "](" src ")\n\n")
        "figure" (str content "\n\n")
        "figcaption" (str "*" content "*\n\n")
@@ -998,10 +1014,14 @@
         links (clean-links link-elements)
         ;; Extract images from main content
         image-elements (.select main-element "img[src]")
-        images (->> image-elements
-                    (map (fn [^Element elem]
-                           {:alt (.attr elem "alt")
-                            :url (.attr elem "src")}))
+        images (->> (concat (map (fn [^Element elem]
+                                   {:alt (.attr elem "alt")
+                                    :url (.attr elem "src")})
+                                 image-elements)
+                            (keep (fn [^Element a]
+                                    (when-let [label (image-link-label a)]
+                                      {:alt label :url (.attr a "href")}))
+                                  (.select main-element "a[href]")))
                     (filter #(not (str/blank? (:url %))))
                     (distinct-by :url)
                     (sort-by :url)

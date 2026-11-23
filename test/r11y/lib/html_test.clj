@@ -1021,3 +1021,23 @@
       (is (re-find #"(?m)^- one$" md))
       (is (re-find #"(?m)^- two$" md))
       (is (= 2 (count (re-seq #"(?m)^- " md)))))))
+
+(deftest test-textless-image-links
+  (let [page (str "<html><body><main><h1>Gallery</h1>"
+                  "<p>" (apply str (repeat 8 "Photos from our events over the years. ")) "</p>"
+                  "<a href='/uploads/one.jpg' data-lightbox='g'></a>"
+                  "<a href='https://example.com/uploads/two.webp?v=2' aria-label='Truck at a wedding'> </a>"
+                  "<a href='/about'></a>"
+                  "<a href='/uploads/three.jpg'>See the photo</a>"
+                  "</main></body></html>")
+        result (html/extract-content page :format :markdown :base-url "https://example.com/")
+        md (:markdown result)]
+    (testing "a textless link to an image file renders as that image"
+      (is (str/includes? md "![](https://example.com/uploads/one.jpg)"))
+      (is (str/includes? md "![Truck at a wedding](https://example.com/uploads/two.webp?v=2)")))
+    (testing "a textless link to a page is still dropped, and a link with text stays a link"
+      (is (not (str/includes? md "](https://example.com/about)")))
+      (is (str/includes? md "[See the photo](https://example.com/uploads/three.jpg)")))
+    (testing "the image links are listed among the images"
+      (is (= #{"https://example.com/uploads/one.jpg" "https://example.com/uploads/two.webp?v=2"}
+             (set (map :url (:images result))))))))
