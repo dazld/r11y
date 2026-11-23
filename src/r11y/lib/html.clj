@@ -405,6 +405,20 @@
   [^Element li depth preserve-whitespace?]
   (render-children li depth preserve-whitespace?))
 
+(defn- list-items
+  "The items of `list-el`: its li children, and any other element child that
+   carries content. Page builders fill a ul with div items, and a browser shows
+   them, so they are items too. A wrapper that holds li elements gives those
+   instead of itself."
+  [^Element list-el]
+  (mapcat (fn [^Element child]
+            (cond
+              (= "li" (.tagName child)) [child]
+              (some #(= "li" (.tagName ^Element %)) (.children child)) (list-items child)
+              (or (not (str/blank? (.text child))) (.selectFirst child "img")) [child]
+              :else []))
+          (.children list-el)))
+
 (defn- render-list
   "Render a ul/ol as Markdown list items. Indentation comes from list nesting
    (marker width), never from DOM depth, so an item wrapped in div/section/etc.
@@ -415,7 +429,7 @@
   (let [ordered? (= (.tagName element) "ol")
         start-num (let [s (.attr element "start")]
                     (if (re-find #"\A-?\d+\z" s) (Integer/parseInt s) 1))
-        items (filter #(= "li" (.tagName ^Element %)) (.children element))]
+        items (list-items element)]
     (str/join
      (map-indexed
       (fn [i ^Element li]
