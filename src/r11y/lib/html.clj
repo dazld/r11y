@@ -682,7 +682,7 @@
        ;; a stripped svg has no text at all and is pure noise
        "a" (let [inner (str/trim content)]
              (if-let [label (image-link-label element)]
-               (str "![" label "](" href ")\n\n")
+               (str " ![" label "](" href ") ")
                (if (or (str/blank? href) (str/blank? inner))
                  inner
                  (str " [" inner "](" href ") "))))

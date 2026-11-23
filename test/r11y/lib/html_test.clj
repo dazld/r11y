@@ -1107,3 +1107,10 @@
     (is (= "- - b\n  - c\n- d"
            (str/trim (html/html-to-markdown
                       "<ul><ul><li>b</li><li>c</li></ul><li>d</li></ul>"))))))
+
+(deftest test-inline-image-link-keeps-its-paragraph
+  (testing "a textless image link inside a paragraph does not split it"
+    (let [md (str/trim (html/html-to-markdown
+                        "<p>See <a href='/x.jpg' title='zoom'></a> more</p>"))]
+      (is (= "See  ![zoom](/x.jpg)  more" md))
+      (is (not (str/includes? md "\n"))))))
