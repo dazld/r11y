@@ -838,12 +838,13 @@
                     (str/replace #"([^\n])\n(#{1,6} )" "$1\n\n$2")
                     (str/replace #"^\s+" "")
                     (str/replace #"\s+$" ""))
-        ;; Restore preserved sections
-        final (reduce-kv (fn [s idx content]
-                           (str/replace s (str "__PRESERVED_" idx "__") content))
-                         cleaned
-                         (vec @preserved))]
-    final))
+        ;; Restore preserved sections in one pass; a placeholder with no stored
+        ;; region (literal text in the page) is left as it is
+        restored (str/replace cleaned
+                              #"__PRESERVED_(\d{1,9})__"
+                              (fn [[whole idx]]
+                                (get @preserved (Long/parseLong idx) whole)))]
+    restored))
 
 ;; Metadata extraction
 (defn- valid-metadata-value?
