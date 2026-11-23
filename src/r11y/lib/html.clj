@@ -357,20 +357,21 @@
 (defn- protected-chunks
   "Split s into alternating plain and protected parts, where a protected part is
    a pre/code payload that must be emitted verbatim."
-  [s]
-  (loop [s s acc []]
-    (if-let [whole (re-find preserve-region-pattern s)]
-      (let [idx (.indexOf s ^String whole)]
-        (recur (subs s (+ idx (count whole)))
-               (conj acc (subs s 0 idx) {:raw whole})))
-      (conj acc s))))
+  [^String s]
+  (let [m (.matcher ^Pattern preserve-region-pattern s)]
+    (loop [from 0 acc []]
+      (if (.find m)
+        (recur (.end m)
+               (conj acc (subs s from (.start m)) {:raw (.group m)}))
+        (conj acc (subs s from))))))
 
 (defn- map-unprotected
   "Apply f only to the parts of s that lie outside protected pre/code payloads."
   [s f]
-  (reduce (fn [acc part] (str acc (if (map? part) (:raw part) (f part))))
-          ""
-          (protected-chunks s)))
+  (let [sb (StringBuilder.)]
+    (doseq [part (protected-chunks s)]
+      (.append sb ^String (if (map? part) (:raw part) (f part))))
+    (.toString sb)))
 
 (defn- collapse-blank-lines
   "Trim trailing whitespace off every line and collapse blank-line runs to a single
@@ -439,22 +440,31 @@
   "Render an element's children in order, inserting a hard break before any
    block-level child that would otherwise be glued onto the end of a text line.
    Re-parsing the pretty-printed subtree can drop the whitespace text node that
-   used to separate them."
+   used to separate them. The output is built in one buffer, and the separator
+   logic reads only the last two characters emitted and whether anything
+   non-blank was emitted, so the cost stays linear in the output size."
   [^Element element depth preserve-whitespace?]
-  (reduce (fn [acc child]
-            (let [rendered (node-to-markdown child (inc depth) preserve-whitespace?)]
-              (if (and (flow-break-child? child) (not (str/blank? acc)))
-                (str acc
-                     ;; a sub-list attaches to its item with a single newline (tight
-                     ;; list), and a definition attaches to its term the same way;
-                     ;; any other block needs a blank line first
-                     (if (or (starts-with-list? child) (= "dd" (.tagName ^Element child)))
-                       (if (str/ends-with? acc "\n") "" "\n")
-                       (if (str/ends-with? acc "\n\n") "" "\n\n"))
-                     rendered)
-                (str acc rendered))))
-          ""
-          (.childNodes element)))
+  (let [sb (StringBuilder.)]
+    (loop [children (seq (.childNodes element))
+           non-blank? false
+           tail ""]
+      (if-let [child (first children)]
+        (let [^String rendered (node-to-markdown child (inc depth) preserve-whitespace?)
+              ;; a sub-list attaches to its item with a single newline (tight
+              ;; list), and a definition attaches to its term the same way;
+              ;; any other block needs a blank line first
+              sep (if (and (flow-break-child? child) non-blank?)
+                    (if (or (starts-with-list? child) (= "dd" (.tagName ^Element child)))
+                      (if (str/ends-with? tail "\n") "" "\n")
+                      (if (str/ends-with? tail "\n\n") "" "\n\n"))
+                    "")
+              piece (str sep rendered)]
+          (.append sb piece)
+          (recur (next children)
+                 (or non-blank? (not (str/blank? piece)))
+                 (let [t (str tail piece)]
+                   (subs t (max 0 (- (count t) 2))))))
+        (.toString sb)))))
 
 (defn- list-item-body
   "Render a list item's children, without its own bullet marker. The nested
