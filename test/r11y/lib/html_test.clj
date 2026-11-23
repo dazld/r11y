@@ -1076,3 +1076,13 @@
                          :format :markdown))]
       (is (str/includes? md "baking bread"))
       (is (not (str/includes? md "Spring offers"))))))
+
+(deftest test-render-children-scales-linearly
+  (testing "a div holding 20,000 paragraphs converts in linear time"
+    (let [para (str "<p>" (apply str (repeat 10 "word word ")) "</p>")
+          html-str (str "<div>" (apply str (repeat 20000 para)) "</div>")
+          start (System/nanoTime)
+          md (html/html-to-markdown html-str)
+          elapsed-ms (/ (- (System/nanoTime) start) 1e6)]
+      (is (= 20000 (count (re-seq #"(?m)^word" md))))
+      (is (< elapsed-ms 3000) (str "took " elapsed-ms " ms")))))
