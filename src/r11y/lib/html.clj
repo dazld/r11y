@@ -40,6 +40,11 @@
 
 (def ^:private image-href (Pattern/compile "\\.(?:jpe?g|png|gif|webp|avif|svg)(?:[?#].*)?$" Pattern/CASE_INSENSITIVE))
 
+(defn- escape-link-label
+  "Backslash-escape the characters that end or open a Markdown link label."
+  [label]
+  (str/replace label #"[\\\[\]]" "\\\\$0"))
+
 (defn- image-link-label
   "The label of `a` when it is a textless link to an image file (a gallery's
    lightbox link), else nil. The link is the only reference to that image, so
@@ -769,8 +774,8 @@
                ;; inline among text; on a line of its own where its container holds
                ;; no text, as a gallery's run of lightbox links does
                (if (some-> (.parent element) .text str/blank?)
-                 (str "![" label "](" href ")\n\n")
-                 (str " ![" label "](" href ") "))
+                 (str "![" (escape-link-label label) "](" href ")\n\n")
+                 (str " ![" (escape-link-label label) "](" href ") "))
                (if (or (str/blank? href) (str/blank? inner))
                  inner
                  (str " [" inner "](" href ") "))))
