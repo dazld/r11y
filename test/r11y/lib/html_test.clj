@@ -1093,3 +1093,17 @@
       (is (= "- Loose text\n- a" (str/trim md)))))
   (testing "whitespace between the items of a list adds none"
     (is (= "- a\n- b" (str/trim (html/html-to-markdown "<ul>\n  <li>a</li>\n  <li>b</li>\n</ul>"))))))
+
+(deftest test-list-directly-inside-a-list
+  (testing "a ul placed between li elements nests under the item before it"
+    (is (= "- a\n  - b\n  - c\n- d"
+           (str/trim (html/html-to-markdown
+                      "<ul><li>a</li><ul><li>b</li><li>c</li></ul><li>d</li></ul>")))))
+  (testing "an ol keeps its own numbering when nested that way"
+    (is (= "- a\n  1. b\n  2. c\n- d"
+           (str/trim (html/html-to-markdown
+                      "<ul><li>a</li><ol><li>b</li><li>c</li></ol><li>d</li></ul>")))))
+  (testing "a list with no item before it is an item of its own"
+    (is (= "- - b\n  - c\n- d"
+           (str/trim (html/html-to-markdown
+                      "<ul><ul><li>b</li><li>c</li></ul><li>d</li></ul>"))))))
