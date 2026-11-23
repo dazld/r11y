@@ -450,16 +450,24 @@
 (def ^:private list-wrapper-tags
   (conj transparent-container-tags "span"))
 
+(defn- list-start
+  "The number an ol starts counting from; 1 when `start` is absent or not a number."
+  [^Element ol]
+  (let [s (.attr ol "start")]
+    (if (re-find #"\A-?\d+\z" s) (Integer/parseInt s) 1)))
+
 (defn- starts-with-list?
   "True when a child element's first block-level content is itself a list, looking
    through the transparent containers (<div>, <section>, ...) that publishers wrap
    sub-lists in. A sub-list attaches to its parent item with a single newline; a
-   paragraph, table or fence needs a blank line first."
+   paragraph, table or fence needs a blank line first, and so does an ol that
+   starts at a number other than 1, which CommonMark does not let interrupt a
+   paragraph."
   [n]
   (when (instance? Element n)
     (let [tag (.tagName ^Element n)]
       (cond
-        (list-tags tag) true
+        (list-tags tag) (not (and (= "ol" tag) (not= 1 (list-start n))))
         (transparent-container-tags tag)
         (starts-with-list? (first (filter block-node? (.children ^Element n))))
         :else false))))
@@ -588,7 +596,10 @@
               (= "li" (.tagName ^Element head)) (list-item-body head depth preserve-whitespace?)
               :else (str/trim (node-to-markdown head (inc depth) preserve-whitespace?)))]
     (reduce (fn [acc sublist]
-              (str acc (if (str/ends-with? acc "\n") "" "\n")
+              (str acc
+                   (if (starts-with-list? sublist)
+                     (if (str/ends-with? acc "\n") "" "\n")
+                     (if (str/ends-with? acc "\n\n") "" (if (str/ends-with? acc "\n") "\n" "\n\n")))
                    (node-to-markdown sublist (inc depth) preserve-whitespace?)))
             own
             sublists)))
@@ -601,8 +612,7 @@
    than terminating the list. Ordered lists keep their numbering."
   [^Element element depth preserve-whitespace?]
   (let [ordered? (= (.tagName element) "ol")
-        start-num (let [s (.attr element "start")]
-                    (if (re-find #"\A-?\d+\z" s) (Integer/parseInt s) 1))
+        start-num (list-start element)
         items (group-sublists (list-items element))]
     (str/join
      (map-indexed
