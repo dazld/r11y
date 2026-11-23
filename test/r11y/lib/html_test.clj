@@ -1177,3 +1177,20 @@
     (is (not (str/includes? md "Datei:Katze.png")))
     (is (str/includes? md "![Real](https://example.com/uploads/real.jpg)"))
     (is (= ["https://example.com/uploads/real.jpg"] (mapv :url (:images result))))))
+
+(deftest test-preserved-code-restored-verbatim
+  (testing "dollar signs and backslashes in code survive the restore"
+    (is (= "`x = $1 \\n $0 \\\\`"
+           (str/trim (html/html-to-markdown "<pre>x = $1 \\n $0 \\\\</pre>")))))
+  (testing "text that only looks like a placeholder is left alone"
+    (is (= "see __PRESERVED_7__ here"
+           (str/trim (html/html-to-markdown "<p>see __PRESERVED_7__ here</p>"))))))
+
+(deftest test-many-code-blocks-scale-linearly
+  (testing "16,000 small code blocks in a div convert in linear time"
+    (let [html-str (str "<div>" (apply str (repeat 16000 "<pre><code>x = 1;\nprint(2)</code></pre>")) "</div>")
+          start (System/nanoTime)
+          md (html/html-to-markdown html-str)
+          elapsed-ms (/ (- (System/nanoTime) start) 1e6)]
+      (is (= 16000 (count (re-seq #"(?m)^print\(2\)$" md))))
+      (is (< elapsed-ms 3000) (str "took " elapsed-ms " ms")))))
