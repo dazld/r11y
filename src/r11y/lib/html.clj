@@ -93,7 +93,13 @@
     ;; tarteaucitron
     "tarteaucitronRoot"
     ;; Blogger
-    "cookieChoiceInfo"})
+    "cookieChoiceInfo"
+    ;; HubSpot
+    "hs-eu-cookie-confirmation"
+    ;; Cookie-Script
+    "cookiescript_injected"
+    ;; Cookie Information
+    "coiOverlay"})
 
 (def ^:private consent-manager-classes
   "Class names of consent-manager containers, on the same terms as
@@ -104,7 +110,11 @@
     "osano-cm-window" "osano-cm-dialog"
     "cc-window" "cc_banner"
     "axeptio_widget" "axeptio_mount"
-    "cookiefirst-root"})
+    "cookiefirst-root"
+    ;; Google Funding Choices
+    "fc-consent-root"
+    ;; Shopify
+    "shopify-pc__banner__dialog"})
 
 (def ^:private page-level-tags
   "Elements that hold a whole page, never removed as a consent banner even when
