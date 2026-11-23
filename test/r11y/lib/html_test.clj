@@ -1114,3 +1114,10 @@
                         "<p>See <a href='/x.jpg' title='zoom'></a> more</p>"))]
       (is (= "See  ![zoom](/x.jpg)  more" md))
       (is (not (str/includes? md "\n"))))))
+
+(deftest test-gallery-image-links-one-per-line
+  (testing "textless image links in a container without text render one per line"
+    (let [md (html/html-to-markdown
+              "<div class='gallery'><a href='/a.jpg'></a> <a href='/b.jpg'></a></div>")]
+      (is (re-find #"(?m)^!\[\]\(/a\.jpg\)$" md))
+      (is (re-find #"(?m)^!\[\]\(/b\.jpg\)$" md)))))
