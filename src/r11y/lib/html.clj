@@ -473,18 +473,51 @@
   (render-children li depth preserve-whitespace?))
 
 (defn- list-items
-  "The items of `list-el`: its li children, and any other element child that
-   carries content. Page builders fill a ul with div items, and a browser shows
-   them, so they are items too. A wrapper that holds li elements gives those
-   instead of itself."
+  "The items of `list-el`, as nodes: its li children, any run of text sitting
+   directly in the list, and any other element child that carries content. Page
+   builders fill a ul with div items, and a browser shows them, so they are
+   items too. A wrapper that holds li elements gives those instead of itself. A
+   ul/ol child is returned as it is, never spliced: `render-list` nests it under
+   the item before it."
   [^Element list-el]
-  (mapcat (fn [^Element child]
+  (mapcat (fn [^Node child]
             (cond
-              (= "li" (.tagName child)) [child]
-              (some #(= "li" (.tagName ^Element %)) (.children child)) (list-items child)
-              (or (not (str/blank? (.text child))) (.selectFirst child "img")) [child]
+              (instance? TextNode child) (when-not (str/blank? (.text ^TextNode child)) [child])
+              (not (instance? Element child)) []
+              (list-tags (.tagName ^Element child)) [child]
+              (= "li" (.tagName ^Element child)) [child]
+              (some #(= "li" (.tagName ^Element %)) (.children ^Element child)) (list-items child)
+              (or (not (str/blank? (.text ^Element child))) (.selectFirst ^Element child "img")) [child]
               :else []))
-          (.children list-el)))
+          (.childNodes list-el)))
+
+(defn- list-element? [n]
+  (and (instance? Element n) (contains? list-tags (.tagName ^Element n))))
+
+(defn- group-sublists
+  "Group list item nodes so that each ul/ol node follows the item it nests
+   under. A list with no item before it forms a group of its own."
+  [nodes]
+  (reduce (fn [groups node]
+            (if (and (list-element? node) (seq groups))
+              (update groups (dec (count groups)) conj node)
+              (conj groups [node])))
+          []
+          nodes))
+
+(defn- list-item-markdown
+  "The body of one list item: its own content, then each sub-list attached with
+   a single newline, as a list nested inside an li is."
+  [[head & sublists] depth preserve-whitespace?]
+  (let [own (cond
+              (instance? TextNode head) (str/trim (node-to-markdown head (inc depth) preserve-whitespace?))
+              (list-element? head) (node-to-markdown head (inc depth) preserve-whitespace?)
+              :else (list-item-body head depth preserve-whitespace?))]
+    (reduce (fn [acc sublist]
+              (str acc (if (str/ends-with? acc "\n") "" "\n")
+                   (node-to-markdown sublist (inc depth) preserve-whitespace?)))
+            own
+            sublists)))
 
 (defn- render-list
   "Render a ul/ol as Markdown list items. Indentation comes from list nesting
@@ -496,13 +529,13 @@
   (let [ordered? (= (.tagName element) "ol")
         start-num (let [s (.attr element "start")]
                     (if (re-find #"\A-?\d+\z" s) (Integer/parseInt s) 1))
-        items (list-items element)]
+        items (group-sublists (list-items element))]
     (str/join
      (map-indexed
-      (fn [i ^Element li]
+      (fn [i item]
         (let [marker (if ordered? (str (+ start-num i) ". ") "- ")
               pad (str/join (repeat (count marker) " "))
-              body (-> (list-item-body li depth preserve-whitespace?)
+              body (-> (list-item-markdown item depth preserve-whitespace?)
                        (map-unprotected collapse-blank-lines)
                        trim-outer-blank-lines)]
           (if (str/blank? body)
