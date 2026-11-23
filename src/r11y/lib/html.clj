@@ -53,27 +53,71 @@
       (str/trim (or (not-empty (.attr a "aria-label")) (.attr a "title"))))))
 
 (def consent-manager-selector
-  "The containers of widely used cookie-consent managers (Complianz, Cookiebot,
-   OneTrust, Usercentrics, Borlabs, CookieYes, Cookie Notice, Moove GDPR,
-   iubenda, Quantcast, Didomi, Klaro, TrustArc, Osano, CookieConsent). A banner
-   is often longer than a page's own text and is hidden by a class rather than
-   an inline style, so it is removed by its markup whatever its length."
+  "The banner and dialog containers of widely used cookie-consent managers,
+   cross-checked against the DuckDuckGo autoconsent and Consent-O-Matic rule
+   sets. A banner is often longer than a page's own text and is hidden by a
+   class rather than an inline style, so it is removed by its markup whatever
+   its length. Each entry names a container exactly: a prefix or substring match
+   also hits the manager's other markup, such as Complianz's cookie-policy page
+   (`#cmplz-document`) or the embeds Borlabs blocks (`._brlbs-block-content`)."
   (str/join ", "
-            ["[id^=cmplz-]" "[class*=cmplz-]"
-             "[id^=CybotCookiebot]"
+            [;; Complianz
+             "#cmplz-cookiebanner-container" ".cmplz-cookiebanner" "#cmplz-manage-consent"
+             ;; Cookiebot
+             "#CybotCookiebotDialog"
+             ;; OneTrust
              "#onetrust-consent-sdk" "#onetrust-banner-sdk" "#onetrust-pc-sdk"
+             ;; Usercentrics
              "#usercentrics-root" "#usercentrics-cmp-ui"
-             "[id^=BorlabsCookie]" "[class*=_brlbs-]"
-             "[class*=cky-consent]" ".cky-modal" ".cky-preference-center"
-             "#cookie-notice" "#cookie-law-info-bar"
+             ;; Borlabs
+             "#BorlabsCookieBox" ".brlbs-cmpnt-dialog"
+             ;; CookieYes
+             ".cky-consent-container" ".cky-overlay" ".cky-modal" "#cky-consent"
+             ;; Cookie Notice, CookieLawInfo (GDPR Cookie Consent)
+             "#cookie-notice" "#cookie-law-info-bar" "#cliSettingsPopup"
+             ;; Moove GDPR
              "#moove_gdpr_cookie_info_bar" "#moove_gdpr_cookie_modal"
+             ;; iubenda
              "#iubenda-cs-banner"
-             "#qc-cmp2-container" ".qc-cmp2-container"
+             ;; Quantcast
+             "#qc-cmp2-container" ".qc-cmp-ui-container"
+             ;; Didomi
              "#didomi-host"
-             ".klaro"
-             "#truste-consent-track" "#consent_blackbar"
+             ;; Klaro
+             "#klaro"
+             ;; TrustArc
+             "#truste-consent-track" "#truste-consent-content" "#consent_blackbar"
+             ;; Osano
              ".osano-cm-window" ".osano-cm-dialog"
-             ".cc-window" "#cc-main" ".cc_banner"]))
+             ;; CookieConsent
+             ".cc-window" "#cc-main" ".cc_banner"
+             ;; Axeptio
+             ".axeptio_widget" ".axeptio_mount"
+             ;; consentmanager
+             "#cmpbox" "#cmpbox2" "#ncmp__tool"
+             ;; CookieFirst
+             "#cookiefirst-root" ".cookiefirst-root"
+             ;; Sourcepoint
+             "[id^=sp_message_container_]"
+             ;; tarteaucitron
+             "#tarteaucitronRoot"
+             ;; Real Cookie Banner
+             "div[consent-skip-blocker=1][data-bg]"
+             ;; Blogger
+             "#cookieChoiceInfo"]))
+
+(def ^:private page-level-tags
+  "Elements that hold a whole page, never removed as a consent banner even when
+   a manager marks them."
+  #{"html" "head" "body" "main" "article"})
+
+(defn remove-consent-managers
+  "Remove the cookie-consent banners and dialogs of `doc` (`consent-manager-selector`)."
+  [^Document doc]
+  (doseq [^Element elem (.select doc ^String consent-manager-selector)]
+    (when-not (page-level-tags (.tagName elem))
+      (.remove elem)))
+  doc)
 
 ;; Helper functions
 
@@ -181,8 +225,7 @@
   "Initial cleaning of the document."
   [^Document doc]
   (standardize-semantic-divs doc)
-  (doseq [elem (.select doc ^String consent-manager-selector)]
-    (.remove elem))
+  (remove-consent-managers doc)
   (doseq [elem (.select
                 doc
                 "script, style, noscript, iframe, object, embed, footer, header, nav, head link, aside, svg, canvas, applet, input, button, select, textarea, label, fieldset, legend, dialog")]
@@ -972,8 +1015,9 @@
               (Jsoup/parse ^String html-input))
         metadata (when with-metadata (extract-metadata doc base-url))
         frontmatter (when with-metadata (metadata-to-frontmatter metadata))
-        ;; Measure raw body text before cleaning for coverage heuristic
-        raw-body-text-len (count (.text (.body doc)))
+        ;; Body text for the coverage heuristic, measured before cleaning but
+        ;; without consent banners, which can outweigh the page's own text
+        raw-body-text-len (count (.text (.body (remove-consent-managers (.clone doc)))))
         ;; First pass: aggressive cleaning
         cleaned-doc-pass1 (-> (.clone doc)
                               promote-lazy-images
