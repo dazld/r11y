@@ -1086,3 +1086,10 @@
           elapsed-ms (/ (- (System/nanoTime) start) 1e6)]
       (is (= 20000 (count (re-seq #"(?m)^word" md))))
       (is (< elapsed-ms 3000) (str "took " elapsed-ms " ms")))))
+
+(deftest test-text-directly-in-a-list
+  (testing "text sitting directly in a ul is an item of its own"
+    (let [md (html/html-to-markdown "<ul>Loose text<li>a</li></ul>")]
+      (is (= "- Loose text\n- a" (str/trim md)))))
+  (testing "whitespace between the items of a list adds none"
+    (is (= "- a\n- b" (str/trim (html/html-to-markdown "<ul>\n  <li>a</li>\n  <li>b</li>\n</ul>"))))))
