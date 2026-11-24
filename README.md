@@ -109,6 +109,10 @@ r11y --link-density 0.3 https://example.com
 # GitHub blob URLs (automatically fetches raw content with metadata)
 r11y -m https://github.com/user/repo/blob/main/README.md
 
+# Read HTML from stdin, e.g. a page saved from a browser for a site
+# that blocks non-browser clients. --base-url resolves relative links.
+r11y --base-url https://example.com/article - < page.html
+
 # Show help
 r11y --help
 ```
@@ -117,6 +121,7 @@ r11y --help
 
 - `-m, --with-metadata` - Include YAML frontmatter with metadata (title, author, date, description, etc.)
 - `-l, --link-density N` - Link density threshold 0-1 (default: 0.5). Lower values are more aggressive at filtering link-heavy content.
+- `-u, --base-url URL` - URL of HTML read from stdin (`-`), used to resolve relative links and images and for metadata
 - `-v, --version` - Show version
 - `-h, --help` - Show help message
 
