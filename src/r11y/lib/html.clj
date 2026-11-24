@@ -1054,13 +1054,23 @@
         (catch Exception _ icon-url))
       icon-url)))
 
+(defn- absolute-http-url
+  "url when it is an absolute http(s) URL, else nil"
+  [url]
+  (let [url (some-> url str/trim)]
+    (when (and url (re-find #"(?i)^https?://[^/\s]" url))
+      url)))
+
 (defn- resolve-canonical-url
-  "Resolve a canonical URL against a base URL"
+  "Resolve a canonical URL against a base URL. An absolute canonical URL
+   needs no base."
   [base-url canonical-url]
-  (when (and base-url (not (str/blank? canonical-url)))
-    (try
-      (str (.resolve (URI. base-url) canonical-url))
-      (catch Exception _ nil))))
+  (when-not (str/blank? canonical-url)
+    (if base-url
+      (try
+        (str (.resolve (URI. base-url) (str/trim canonical-url)))
+        (catch Exception _ nil))
+      (absolute-http-url canonical-url))))
 
 (defn- guard-sitename
   "Reject overly long site names — sites sometimes put the article title
@@ -1150,6 +1160,16 @@
        vec))
 
 ;; Main API
+(defn page-url
+  "The page's own absolute URL as the HTML states it, from its canonical
+   link or og:url, or nil. Input can be a String or byte array."
+  [html-input]
+  (let [doc (if (bytes? html-input)
+              (parse-html-bytes html-input nil)
+              (Jsoup/parse ^String html-input))]
+    (or (absolute-http-url (safe-attr (.selectFirst doc "link[rel=canonical]") "href"))
+        (absolute-http-url (safe-attr (.selectFirst doc "meta[property=og:url]") "content")))))
+
 (defn extract-content
   "Extract content from HTML. Input can be a String or byte array.
    When passing bytes, JSoup will auto-detect the charset."

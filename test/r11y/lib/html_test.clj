@@ -1194,3 +1194,19 @@
           elapsed-ms (/ (- (System/nanoTime) start) 1e6)]
       (is (= 16000 (count (re-seq #"(?m)^print\(2\)$" md))))
       (is (< elapsed-ms 3000) (str "took " elapsed-ms " ms")))))
+
+(deftest test-page-url
+  (testing "The canonical link gives the page URL"
+    (is (= "https://site.com/a"
+           (html/page-url "<html><head><link rel=\"canonical\" href=\"https://site.com/a\"></head></html>"))))
+  (testing "og:url is the fallback"
+    (is (= "https://site.com/b"
+           (html/page-url "<html><head><link rel=\"canonical\" href=\"/a\"><meta property=\"og:url\" content=\"https://site.com/b\"></head></html>"))))
+  (testing "A relative URL alone gives nothing"
+    (is (nil? (html/page-url "<html><head><link rel=\"canonical\" href=\"/a\"></head></html>")))))
+
+(deftest test-absolute-canonical-without-base
+  (let [doc (Jsoup/parse "<html><head><title>T</title><link rel=\"canonical\" href=\"https://site.com/a\"></head><body></body></html>")
+        metadata (html/extract-metadata doc nil)]
+    (is (= "https://site.com/a" (:canonical-url metadata)))
+    (is (false? (:is-canonical metadata)))))

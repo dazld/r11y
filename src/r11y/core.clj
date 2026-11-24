@@ -16,10 +16,10 @@
   (println "  -l, --link-density N   Link density threshold 0-1 (default: 0.5)")
   (println "  -m, --with-metadata    Include YAML frontmatter with metadata")
   (println "  -u, --base-url URL     URL of HTML read from stdin, for links and metadata")
-  (println "")
-  (println "With no URL, or with -, r11y reads HTML from stdin.")
   (println "  -v, --version          Show version")
   (println "  -h, --help             Show this help message")
+  (println "")
+  (println "With no URL, or with -, r11y reads HTML from stdin.")
   (println "")
   (println "Example:")
   (println "  r11y https://example.com")
@@ -67,15 +67,17 @@
 ;; clients they do not take for a browser. The JDK reports these as bare
 ;; IOExceptions, so they are recognised by type and message.
 (def ^:private dropped-connection-pattern
-  #"RST_STREAM|GOAWAY|Connection reset|connection closed|EOF reached|timed out")
+  #"RST_STREAM|GOAWAY|Connection reset|connection closed|EOF reached")
 
 (defn dropped-connection?
   "True when an exception, or one of its causes, means the server dropped or
-   stalled the connection."
+   stalled the connection. A connect timeout is not one: the host could not
+   be reached at all."
   [^Throwable e]
   (boolean
    (some (fn [^Throwable t]
-           (or (instance? java.net.http.HttpTimeoutException t)
+           (or (and (instance? java.net.http.HttpTimeoutException t)
+                    (not (instance? java.net.http.HttpConnectTimeoutException t)))
                (and (instance? java.io.IOException t)
                     (some->> (.getMessage t) (re-find dropped-connection-pattern)))))
          (take-while some? (iterate #(.getCause ^Throwable %) e)))))
@@ -85,10 +87,22 @@
   [url]
   (or (nil? url) (= url "-")))
 
-(defn- terminal?
-  "True when r11y runs interactively, so stdin is a keyboard, not a pipe."
+(defn- stdin-terminal?
+  "True when stdin is a terminal, not a pipe or a file. Java cannot test stdin
+   alone, so test(1) does it on the inherited stdin. Where that fails, a
+   console means a terminal: then r11y prints usage rather than wait."
   []
-  (some-> (System/console) (.isTerminal)))
+  (try
+    (zero? (.waitFor (-> (ProcessBuilder. ^java.util.List ["test" "-t" "0"])
+                         (.redirectInput java.lang.ProcessBuilder$Redirect/INHERIT)
+                         (.start))))
+    (catch Exception _
+      (some? (System/console)))))
+
+(defn shell-quote
+  "s quoted for a POSIX shell"
+  [s]
+  (str "'" (str/replace s "'" "'\\''") "'"))
 
 (defn error-message
   "Message to show when extraction from url fails with exception e."
@@ -97,17 +111,28 @@
     (str "Error fetching " url ": the server dropped the connection (" (.getMessage e) ").\n"
          "Some sites block clients that do not look like a browser. "
          "You can save the page from a browser and pipe it in:\n"
-         "  r11y --base-url '" url "' < page.html")
-    (str "Error extracting content: " (.getMessage e))))
+         "  r11y --base-url " (shell-quote url) " < page.html")
+    (str (if (::input-error (ex-data e)) "Error: " "Error extracting content: ")
+         (.getMessage e))))
 
 (defn- extract
   [{:keys [url base-url link-density-threshold with-metadata]}]
   (if (stdin-input? url)
-    (html/extract-content (.readAllBytes System/in)
-                          :format :markdown
-                          :base-url base-url
-                          :link-density-threshold link-density-threshold
-                          :with-metadata with-metadata)
+    (let [body (.readAllBytes System/in)]
+      (cond
+        (str/blank? (String. body "UTF-8"))
+        (throw (ex-info "No input on stdin. Give a URL, or pipe in HTML." {::input-error true}))
+
+        ;; Like the URL path, pass Markdown through rather than parse it as HTML
+        (html/looks-like-markdown? body)
+        {:markdown (str/trimr (String. body "UTF-8"))}
+
+        :else
+        (html/extract-content body
+                              :format :markdown
+                              :base-url (or base-url (html/page-url body))
+                              :link-density-threshold link-density-threshold
+                              :with-metadata with-metadata)))
     (html/extract-content-from-url url
                                    :format :markdown
                                    :link-density-threshold link-density-threshold
@@ -125,7 +150,7 @@
                       (println)
                       (print-usage)
                       (System/exit 1))
-      (and (nil? (:url opts)) (terminal?)) (do
+      (and (nil? (:url opts)) (stdin-terminal?)) (do
                            (println "Error: No URL provided")
                            (println)
                            (print-usage)
