@@ -3,7 +3,7 @@
             [r11y.core :as core])
   (:import (java.io IOException)
            (java.net UnknownHostException)
-           (java.net.http HttpTimeoutException)))
+           (java.net.http HttpConnectTimeoutException HttpTimeoutException)))
 
 (deftest parse-args-stdin
   (testing "- reads from stdin"
@@ -25,6 +25,8 @@
     (is (core/dropped-connection? (HttpTimeoutException. "request timed out")))
     (is (core/dropped-connection? (RuntimeException. "wrapped" (IOException. "GOAWAY received")))))
   (testing "other failures are not"
+    (is (not (core/dropped-connection? (HttpConnectTimeoutException. "HTTP connect timed out"))))
+    (is (not (core/dropped-connection? (IOException. "connect timed out"))))
     (is (not (core/dropped-connection? (UnknownHostException. "nope.invalid"))))
     (is (not (core/dropped-connection? (IllegalArgumentException. "bad"))))))
 
@@ -34,3 +36,7 @@
                  (core/error-message url (IOException. "Received RST_STREAM: Internal error"))))
     (is (= "Error extracting content: bad"
            (core/error-message url (IllegalArgumentException. "bad"))))))
+
+(deftest shell-quote
+  (is (= "'https://example.com/a'" (core/shell-quote "https://example.com/a")))
+  (is (= "'https://example.com/it'\\''s'" (core/shell-quote "https://example.com/it's"))))
