@@ -30,7 +30,7 @@
 
 (deftest error-message-suggests-stdin
   (let [url "https://example.com/a"]
-    (is (re-find #"r11y --base-url 'https://example.com/a' - < page.html"
+    (is (re-find #"r11y --base-url 'https://example.com/a' < page.html"
                  (core/error-message url (IOException. "Received RST_STREAM: Internal error"))))
     (is (= "Error extracting content: bad"
            (core/error-message url (IllegalArgumentException. "bad"))))))

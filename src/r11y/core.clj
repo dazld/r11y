@@ -8,7 +8,7 @@
 (defn print-usage
   []
   (println "Usage: r11y [options] <url>")
-  (println "       r11y [options] -        (read HTML from stdin)")
+  (println "       r11y [options] < page.html")
   (println "")
   (println "Extract readable content from web pages as Markdown")
   (println "")
@@ -16,6 +16,8 @@
   (println "  -l, --link-density N   Link density threshold 0-1 (default: 0.5)")
   (println "  -m, --with-metadata    Include YAML frontmatter with metadata")
   (println "  -u, --base-url URL     URL of HTML read from stdin, for links and metadata")
+  (println "")
+  (println "With no URL, or with -, r11y reads HTML from stdin.")
   (println "  -v, --version          Show version")
   (println "  -h, --help             Show this help message")
   (println "")
@@ -23,7 +25,7 @@
   (println "  r11y https://example.com")
   (println "  r11y --link-density 0.3 https://example.com")
   (println "  r11y --with-metadata https://example.com")
-  (println "  curl -s https://example.com | r11y --base-url https://example.com -"))
+  (println "  r11y --base-url https://example.com/article < page.html"))
 
 (defn parse-args
   [args]
@@ -78,19 +80,29 @@
                     (some->> (.getMessage t) (re-find dropped-connection-pattern)))))
          (take-while some? (iterate #(.getCause ^Throwable %) e)))))
 
+(defn- stdin-input?
+  "True when the URL argument means: read HTML from stdin."
+  [url]
+  (or (nil? url) (= url "-")))
+
+(defn- terminal?
+  "True when r11y runs interactively, so stdin is a keyboard, not a pipe."
+  []
+  (some-> (System/console) (.isTerminal)))
+
 (defn error-message
   "Message to show when extraction from url fails with exception e."
   [url ^Throwable e]
-  (if (and (not= url "-") (dropped-connection? e))
+  (if (and (not (stdin-input? url)) (dropped-connection? e))
     (str "Error fetching " url ": the server dropped the connection (" (.getMessage e) ").\n"
          "Some sites block clients that do not look like a browser. "
          "You can save the page from a browser and pipe it in:\n"
-         "  r11y --base-url '" url "' - < page.html")
+         "  r11y --base-url '" url "' < page.html")
     (str "Error extracting content: " (.getMessage e))))
 
 (defn- extract
   [{:keys [url base-url link-density-threshold with-metadata]}]
-  (if (= url "-")
+  (if (stdin-input? url)
     (html/extract-content (.readAllBytes System/in)
                           :format :markdown
                           :base-url base-url
@@ -113,13 +125,13 @@
                       (println)
                       (print-usage)
                       (System/exit 1))
-      (nil? (:url opts)) (do
+      (and (nil? (:url opts)) (terminal?)) (do
                            (println "Error: No URL provided")
                            (println)
                            (print-usage)
                            (System/exit 1))
-      (and (:base-url opts) (not= (:url opts) "-"))
-      (do (println "Error: --base-url is only used when reading HTML from stdin (-)")
+      (and (:base-url opts) (not (stdin-input? (:url opts))))
+      (do (println "Error: --base-url is only used when reading HTML from stdin")
           (println)
           (print-usage)
           (System/exit 1))
