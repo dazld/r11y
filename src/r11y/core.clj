@@ -20,6 +20,10 @@
   (println "  -h, --help             Show this help message")
   (println "")
   (println "With no URL, or with -, r11y reads HTML from stdin.")
+  (println "-- ends the options: what follows is the URL even if it starts with -.")
+  (println "")
+  (println "Exit status: 0 on success, 1 when fetching, extracting or writing fails,")
+  (println "2 when the command line is wrong.")
   (println "")
   (println "Example:")
   (println "  r11y https://example.com")
@@ -35,7 +39,12 @@
       opts
       (let [arg (first args)
             rest-args (rest args)]
-        (cond (or (= arg "-h") (= arg "--help")) (assoc opts :help true)
+        (cond (= arg "--")
+          (cond (next rest-args) (assoc opts :error "Multiple URLs provided. Only one URL is allowed.")
+                (empty? rest-args) opts
+                (:url opts) (assoc opts :error "Multiple URLs provided. Only one URL is allowed.")
+                :else (assoc opts :url (first rest-args)))
+          (or (= arg "-h") (= arg "--help")) (assoc opts :help true)
           (or (= arg "-v") (= arg "--version")) (assoc opts :version true)
           (or (= arg "-m") (= arg "--with-metadata")) (recur rest-args (assoc opts :with-metadata true))
           (or (= arg "-l") (= arg "--link-density"))
@@ -154,32 +163,61 @@
                                    :link-density-threshold link-density-threshold
                                    :with-metadata with-metadata)))
 
+(defn- usage-error
+  "Print msg and usage to stderr; return the exit status for a wrong command line."
+  [msg]
+  (binding [*out* *err*]
+    (println "Error:" msg)
+    (println)
+    (print-usage))
+  2)
+
+(defn run
+  "Run r11y with command-line args and return the exit status."
+  [args]
+  (let [opts (parse-args args)]
+    (cond
+      (:version opts) (do (println (str "r11y " version))
+                          (println "https://github.com/dazld/r11y/releases")
+                          0)
+      (:help opts) (do (print-usage) 0)
+      (:error opts) (usage-error (:error opts))
+      (and (nil? (:url opts)) (stdin-terminal?)) (usage-error "No URL provided")
+      (and (:base-url opts) (not (stdin-input? (:url opts))))
+      (usage-error "--base-url is only used when reading HTML from stdin")
+      :else (let [result (try (extract opts)
+                              (catch Exception e
+                                (binding [*out* *err*]
+                                  (println (error-message (:url opts) e)))
+                                nil))]
+              (if result
+                (do (println (:markdown result))
+                    0)
+                1)))))
+
+(defn- broken-pipe?
+  "True when e says the reader of stdout went away, as with r11y URL | head."
+  [^java.io.IOException e]
+  (boolean (some->> (.getMessage e) (re-find #"(?i)broken pipe"))))
+
 (defn -main
   [& args]
-  (let [opts (parse-args args)]
-    (cond (:version opts) (do (println (str "r11y " version))
-                             (println "https://github.com/dazld/r11y/releases")
-                             (System/exit 0))
-      (:help opts) (do (print-usage) (System/exit 0))
-      (:error opts) (do
-                      (println "Error:" (:error opts))
-                      (println)
-                      (print-usage)
-                      (System/exit 1))
-      (and (nil? (:url opts)) (stdin-terminal?)) (do
-                           (println "Error: No URL provided")
-                           (println)
-                           (print-usage)
-                           (System/exit 1))
-      (and (:base-url opts) (not (stdin-input? (:url opts))))
-      (do (println "Error: --base-url is only used when reading HTML from stdin")
-          (println)
-          (print-usage)
-          (System/exit 1))
-      :else (try (let [result (extract opts)]
-                   (println (:markdown result))
-                   (System/exit 0))
-                 (catch Exception e
-                   (binding [*out* *err*]
-                     (println (error-message (:url opts) e)))
-                   (System/exit 1))))))
+  ;; Write stdout straight to its file descriptor: System.out drops write
+  ;; errors, so a full disk or closed stdout would still exit 0.
+  (let [stdout (java.io.BufferedWriter.
+                (java.io.OutputStreamWriter.
+                 (java.io.FileOutputStream. java.io.FileDescriptor/out)
+                 java.nio.charset.StandardCharsets/UTF_8))
+        status (try
+                 (binding [*out* stdout]
+                   (let [status (run args)]
+                     (flush)
+                     status))
+                 (catch java.io.IOException e
+                   ;; A reader that closed the pipe early wanted no more
+                   ;; output: fail, but without a message, like SIGPIPE.
+                   (when-not (broken-pipe? e)
+                     (binding [*out* *err*]
+                       (println "Error: could not write output:" (.getMessage e))))
+                   1))]
+    (System/exit status)))

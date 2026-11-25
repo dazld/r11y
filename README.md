@@ -125,7 +125,15 @@ r11y --help
 - `-v, --version` - Show version
 - `-h, --help` - Show help message
 
-With no URL, r11y reads HTML from stdin. `-` also means stdin.
+With no URL, r11y reads HTML from stdin. `-` also means stdin. `--` ends the options, so what follows is the URL even if it starts with `-`.
+
+### Exit status
+
+- `0` - success
+- `1` - fetching, extracting or writing the output failed. The error is on stderr.
+- `2` - the command line is wrong, such as an unknown option or a bad value. The error and usage are on stderr.
+
+When r11y cannot write its output, it exits 1. This includes a reader that closes the pipe early, as in `r11y URL | head -1`; r11y then prints no error, much as tools stopped by SIGPIPE do.
 
 ### Example Output with Metadata
 

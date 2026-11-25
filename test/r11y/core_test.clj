@@ -53,3 +53,44 @@
                                (RuntimeException. nil (IllegalStateException. "inner")))))
     (is (= "Error extracting content: IllegalStateException"
            (core/error-message "https://x.test/" (IllegalStateException.))))))
+
+(deftest parse-args-end-of-options
+  (testing "-- makes the next argument the URL, even if it starts with -"
+    (is (= "-not-an-option" (:url (core/parse-args ["--" "-not-an-option"])))))
+  (testing "options before -- still apply"
+    (let [opts (core/parse-args ["-m" "--" "https://example.com"])]
+      (is (:with-metadata opts))
+      (is (= "https://example.com" (:url opts)))))
+  (testing "-- with nothing after it leaves the URL unset"
+    (is (nil? (:url (core/parse-args ["--"])))))
+  (testing "only one URL, before or after --"
+    (is (:error (core/parse-args ["--" "https://a.test" "https://b.test"])))
+    (is (:error (core/parse-args ["https://a.test" "--" "https://b.test"])))))
+
+(defn- run-captured
+  "Run args; return {:status :out :err}."
+  [args]
+  (let [err (java.io.StringWriter.)
+        status (atom nil)
+        out (with-out-str
+              (binding [*err* err]
+                (reset! status (core/run args))))]
+    {:status @status :out out :err (str err)}))
+
+(deftest exit-status-and-streams
+  (testing "a wrong command line exits 2, with the error and usage on stderr only"
+    (doseq [args [["--bogus"]
+                  ["-l" "5" "https://example.com"]
+                  ["--base-url" "https://example.com" "https://example.com"]
+                  ["https://a.test" "https://b.test"]]]
+      (let [{:keys [status out err]} (run-captured args)]
+        (is (= 2 status) (pr-str args))
+        (is (= "" out) (pr-str args))
+        (is (re-find #"^Error: " err) (pr-str args))
+        (is (re-find #"Usage: r11y" err) (pr-str args)))))
+  (testing "help and version go to stdout with status 0"
+    (doseq [args [["-h"] ["--version"]]]
+      (let [{:keys [status out err]} (run-captured args)]
+        (is (= 0 status))
+        (is (seq out))
+        (is (= "" err))))))
