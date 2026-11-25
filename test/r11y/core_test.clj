@@ -40,3 +40,16 @@
 (deftest shell-quote
   (is (= "'https://example.com/a'" (core/shell-quote "https://example.com/a")))
   (is (= "'https://example.com/it'\\''s'" (core/shell-quote "https://example.com/it's"))))
+
+(deftest error-message-without-exception-messages
+  (testing "an unknown host is named, though every message in the chain is nil"
+    (is (= "Error extracting content: cannot resolve the host name"
+           (core/error-message "https://nope.invalid/"
+                               (doto (java.net.ConnectException.)
+                                 (.initCause (java.nio.channels.UnresolvedAddressException.)))))))
+  (testing "a nil message falls back to a cause's message, then the class name"
+    (is (= "Error extracting content: inner"
+           (core/error-message "https://x.test/"
+                               (RuntimeException. nil (IllegalStateException. "inner")))))
+    (is (= "Error extracting content: IllegalStateException"
+           (core/error-message "https://x.test/" (IllegalStateException.))))))
