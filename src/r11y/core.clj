@@ -105,16 +105,31 @@
   [s]
   (str "'" (str/replace s "'" "'\\''") "'"))
 
+(defn- describe
+  "A readable message for e. JDK network errors often have none: an unknown
+   host is a chain of exceptions whose messages are all nil."
+  [^Throwable e]
+  (let [chain (take-while some? (iterate #(.getCause ^Throwable %) e))]
+    (cond
+      (some #(or (instance? java.net.UnknownHostException %)
+                 (instance? java.nio.channels.UnresolvedAddressException %))
+            chain)
+      "cannot resolve the host name"
+
+      :else
+      (or (some #(let [m (.getMessage ^Throwable %)] (when-not (str/blank? m) m)) chain)
+          (.getSimpleName (class e))))))
+
 (defn error-message
   "Message to show when extraction from url fails with exception e."
   [url ^Throwable e]
   (if (and (not (stdin-input? url)) (dropped-connection? e))
-    (str "Error fetching " url ": the server dropped the connection (" (.getMessage e) ").\n"
+    (str "Error fetching " url ": the server dropped the connection (" (describe e) ").\n"
          "Some sites block clients that do not look like a browser. "
          "You can save the page from a browser and pipe it in:\n"
          "  r11y --base-url " (shell-quote url) " < page.html")
     (str (if (::input-error (ex-data e)) "Error: " "Error extracting content: ")
-         (.getMessage e))))
+         (describe e))))
 
 (defn- extract
   [{:keys [url base-url link-density-threshold with-metadata]}]
