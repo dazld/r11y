@@ -17,6 +17,8 @@ A lightning fast, GraalVM-compiled CLI tool for extracting readable content from
 - Standardises React/Next.js semantic divs (`role=paragraph`, `role=list`) into proper HTML so content structure survives extraction
 - Removes decorative SVGs, spacer images, layout tables, and duplicated UI chrome
 - GitHub-optimized extraction (README files, blob content)
+- Reads HTML or Markdown from stdin, for pages saved from a browser or fetched another way
+- Bounded fetches: redirect, size and time limits, with an `:allow-url?` hook for servers that fetch user-supplied URLs
 - Configurable link density threshold for content filtering
 - Babashka-compatible — usable from `bb` scripts via `:git/tag` deps, no GraalVM required
 - Fast startup with GraalVM native compilation (~40ms)
@@ -113,6 +115,9 @@ r11y -m https://github.com/user/repo/blob/main/README.md
 # that blocks non-browser clients. --base-url resolves relative links.
 r11y --base-url https://example.com/article < page.html
 
+# Allow a slow or large page more time and size than the defaults (30 s, 10 MB)
+r11y --timeout 60 --max-size 25 https://example.com/long-report
+
 # Show help
 r11y --help
 ```
@@ -121,13 +126,13 @@ r11y --help
 
 - `-m, --with-metadata` - Include YAML frontmatter with metadata (title, author, date, description, etc.)
 - `-l, --link-density N` - Link density threshold 0-1 (default: 0.5). Lower values are more aggressive at filtering link-heavy content.
-- `-u, --base-url URL` - URL of HTML read from stdin, used to resolve relative links and images and for metadata. Must be an absolute http(s) URL.
-- `-t, --timeout SECONDS` - Longest time to fetch a page, redirects included (default: 30)
-- `--max-size MB` - Largest page to fetch (default: 10)
+- `-u, --base-url URL` - URL of HTML read from stdin, used to resolve relative links and images and for metadata. Must be an absolute http(s) URL. Without it, r11y uses the page's canonical link or `og:url`, if it has one.
+- `-t, --timeout SECONDS` - Longest time to fetch a page, redirects and download included (default: 30). Only for URLs, not stdin.
+- `--max-size MB` - Largest page to fetch, after decompression (default: 10). Only for URLs, not stdin.
 - `-v, --version` - Show version
 - `-h, --help` - Show help message
 
-With no URL, r11y reads HTML from stdin. `-` also means stdin. `--` ends the options, so what follows is the URL even if it starts with `-`.
+With no URL, r11y reads HTML from stdin. `-` also means stdin. Markdown on stdin is passed through, with any YAML frontmatter rebuilt by `-m`. `--` ends the options, so what follows is the URL even if it starts with `-`.
 
 ### Exit status
 
