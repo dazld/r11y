@@ -76,7 +76,8 @@
   [^Throwable e]
   (boolean
    (some (fn [^Throwable t]
-           (or (and (instance? java.net.http.HttpTimeoutException t)
+           (or (= :r11y/timeout (:type (ex-data t)))
+               (and (instance? java.net.http.HttpTimeoutException t)
                     (not (instance? java.net.http.HttpConnectTimeoutException t)))
                (and (instance? java.io.IOException t)
                     (some->> (.getMessage t) (re-find dropped-connection-pattern)))))
