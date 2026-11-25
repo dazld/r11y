@@ -1326,9 +1326,10 @@
           (re-find #"(?m)^\d+\.\s+\S" s)))))
 
 (defn- fetch-url
-  "Fetch URL with common headers and return response map."
-  [url]
-  (http/get-url url {:as :byte-array
+  "Fetch URL with common headers and return response map. opts are the
+   limits that r11y.lib.http/get-url takes."
+  [url opts]
+  (http/get-url url (assoc opts
                      :headers {"User-Agent" "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.6 Safari/605.1.15"
                                "Accept" "text/markdown,text/html;q=0.9,application/xhtml+xml;q=0.9,application/xml;q=0.8,*/*;q=0.7"
                                "Accept-Encoding" "gzip, deflate"
@@ -1336,7 +1337,7 @@
                                "Priority" "u=0, i"
                                "Sec-Fetch-Dest" "document"
                                "Sec-Fetch-Mode" "navigate"
-                               "Sec-Fetch-Site" "none"}}))
+                               "Sec-Fetch-Site" "none"})))
 
 (defn extract-content-from-url
   "Extract main content from a URL. Returns clean HTML by default.
@@ -1346,13 +1347,38 @@
    :with-metadata - include YAML frontmatter with metadata (default false)
    :content - pre-fetched HTML content (String or bytes), skips initial fetch
    :content-type - content-type of pre-fetched content
-   :fetch-fn - custom fetch function returning http-kit style response map"
+
+   Fetch limits (see r11y.lib.http/get-url), used when :fetch-fn is not given:
+   :allow-url? - (fn [url] bool), checked before every request, redirects
+                 included. It sees the URL only: a host name that resolves to
+                 a private address passes unless the predicate resolves it.
+   :max-redirects - default 10
+   :max-bytes - largest body to read, default 10 MB
+   :connect-timeout - ms, default 10 s
+   :timeout - ms for each fetch, redirects and body included, default 30 s
+
+   :fetch-fn - (fn [url] response) that replaces fetching completely; the
+   options above are then ignored. Every request r11y makes goes through it,
+   including the second fetch of a GitHub URL rewritten to its raw content.
+   It returns {:status int
+               :headers {:content-type string}
+               :body bytes or string
+               :uri final URL after redirects, used to resolve relative links}
+   and throws for a response it does not want extracted, such as a non-2xx
+   one: r11y extracts whatever body it is given."
   [url & {:keys [format link-density-threshold with-metadata
-                 content content-type fetch-fn]
+                 content content-type fetch-fn
+                 allow-url? max-redirects max-bytes connect-timeout timeout]
           :or {format :html
                link-density-threshold default-link-density-threshold
                with-metadata false}}]
-  (let [do-fetch (or fetch-fn fetch-url)
+  (let [fetch-opts (cond-> {}
+                     allow-url? (assoc :allow-url? allow-url?)
+                     max-redirects (assoc :max-redirects max-redirects)
+                     max-bytes (assoc :max-bytes max-bytes)
+                     connect-timeout (assoc :connect-timeout connect-timeout)
+                     timeout (assoc :timeout timeout))
+        do-fetch (or fetch-fn #(fetch-url % fetch-opts))
         normalized-url (normalize-github-url url)
         urls-differ? (not= normalized-url url)
         ;; Step 1: Resolve original content

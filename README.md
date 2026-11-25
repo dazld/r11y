@@ -206,6 +206,32 @@ bb -Sdeps '{:deps {io.github.dazld/r11y {:git/tag "v1.0.7" :git/sha "59a594a"}}}
 
 No GraalVM required — bb resolves the dep, downloads JSoup transitively, and runs the extractor. Useful for one-off scripts where you don't want to install the native binary.
 
+### Fetching addresses your users type in
+
+r11y follows redirects itself and limits every fetch. These options of `extract-content-from-url` set the limits:
+
+| Option | Default | When it is exceeded |
+|---|---|---|
+| `:allow-url?` | none | `(fn [url] bool)`, called before every request, redirects included. False stops with `:type :r11y/blocked-url`. |
+| `:max-redirects` | 10 | `:r11y/too-many-redirects` |
+| `:max-bytes` | 10 MB | `:r11y/body-too-large` |
+| `:connect-timeout` | 10 s | `:r11y/connect-timeout` |
+| `:timeout` | 30 s, for the whole fetch: redirects and body included | `:r11y/timeout` |
+
+Each failure is an `ex-info` whose data has `:type` and `:url`. A response other than 2xx stops with `:r11y/http-error` and `:status`. Redirects go to `http` and `https` addresses only.
+
+`:allow-url?` sees the URL, not the address it resolves to. A host name that resolves to a private or link-local address passes unless your predicate resolves it and checks the result. Keep that in mind when you use it to block internal addresses such as `169.254.169.254`.
+
+```clojure
+(html/extract-content-from-url url
+  :format :markdown
+  :allow-url? my-allowed-url?
+  :max-bytes (* 2 1024 1024)
+  :timeout 15000)
+```
+
+To control fetching completely, pass `:fetch-fn`, a `(fn [url] response)`. The options above are then ignored. Every request r11y makes goes through it, including the second fetch when a GitHub URL is rewritten to its raw content. It returns `{:status int, :headers {:content-type string}, :body bytes-or-string, :uri final-url}`. r11y uses `:uri` to resolve relative links. r11y extracts any body it is given, so throw for a response you do not want extracted, such as one other than 2xx.
+
 ## How it works
 
 r11y uses content extraction algorithms inspired by Mozilla's Readability and trafilatura to identify and extract the main content from web pages:
