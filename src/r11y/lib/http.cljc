@@ -8,7 +8,6 @@
      :clj (:require [hato.client :as hato]))
   (:import (java.io ByteArrayOutputStream InputStream)
            (java.net URI)
-           (java.util.concurrent ExecutionException)
            (java.net.http HttpTimeoutException)))
 
 (set! *warn-on-reflection* true)
@@ -26,9 +25,13 @@
              {}
              headers))
 
-(defn- header [response header-name]
-  (some (fn [[k v]] (when (.equalsIgnoreCase ^String (name k) ^String header-name) v))
-        (:headers response)))
+(defn- header
+  "The value of a response header. A header the server sent more than once
+   comes as a list of values (a java.util.List from hato): take the first."
+  [response header-name]
+  (let [v (some (fn [[k v]] (when (.equalsIgnoreCase ^String (name k) ^String header-name) v))
+                (:headers response))]
+    (if (instance? java.util.List v) (first v) v)))
 
 (defn- close-body [response]
   (when-let [body (:body response)]
@@ -86,15 +89,27 @@
    off here."
   ^bytes [response url max-bytes deadline timeout-ms]
   (let [^InputStream in (:body response)
-        reader (future (read-limited in max-bytes url))
-        result (try (deref reader (max 0 (remaining-ms deadline)) ::timeout)
-                    (catch ExecutionException e
-                      (throw (or (.getCause e) e))))]
-    (if (= result ::timeout)
-      (do (future-cancel reader)
+        outcome (promise)
+        ;; A daemon thread, not a future: the agent pool's threads would keep
+        ;; a caller's JVM alive for a minute after the fetch.
+        reader (doto (Thread. ^Runnable (fn []
+                                          (deliver outcome
+                                                   (try {:body (read-limited in max-bytes url)}
+                                                        (catch Throwable e {:error e})))))
+                 (.setDaemon true)
+                 (.start))
+        result (deref outcome (max 0 (remaining-ms deadline)) ::timeout)]
+    (cond
+      (= result ::timeout)
+      (do (.interrupt reader)
           (close-body response)
           (throw (timeout-error url timeout-ms)))
-      result)))
+
+      (:error result)
+      (do (close-body response)
+          (throw (:error result)))
+
+      :else (:body result))))
 
 (defn- resolve-location [url location]
   (let [target (try (str (.resolve (URI. url) (.trim ^String location)))

@@ -1,5 +1,6 @@
 (ns r11y.core-test
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [clojure.string :as str]
+            [clojure.test :refer [deftest is testing]]
             [r11y.core :as core])
   (:import (java.io IOException)
            (java.net UnknownHostException)
@@ -68,14 +69,20 @@
     (is (:error (core/parse-args ["https://a.test" "--" "https://b.test"])))))
 
 (defn- run-captured
-  "Run args; return {:status :out :err}."
-  [args]
-  (let [err (java.io.StringWriter.)
-        status (atom nil)
-        out (with-out-str
-              (binding [*err* err]
-                (reset! status (core/run args))))]
-    {:status @status :out out :err (str err)}))
+  "Run args, with stdin holding input if given; return {:status :out :err}."
+  ([args] (run-captured args nil))
+  ([args ^String input]
+   (let [err (java.io.StringWriter.)
+         status (atom nil)
+         stdin System/in
+         out (try
+               (when input
+                 (System/setIn (java.io.ByteArrayInputStream. (.getBytes input "UTF-8"))))
+               (with-out-str
+                 (binding [*err* err]
+                   (reset! status (core/run args))))
+               (finally (System/setIn stdin)))]
+     {:status @status :out out :err (str err)})))
 
 (deftest exit-status-and-streams
   (testing "a wrong command line exits 2, with the error and usage on stderr only"
@@ -94,3 +101,68 @@
         (is (= 0 status))
         (is (seq out))
         (is (= "" err))))))
+
+(deftest fetch-limit-options
+  (testing "--timeout takes seconds and --max-size megabytes"
+    (let [opts (core/parse-args ["-t" "2.5" "--max-size" "3" "https://example.com"])]
+      (is (= 2500 (:timeout opts)))
+      (is (= (* 3 1024 1024) (:max-bytes opts)))))
+  (testing "a missing, non-numeric or non-positive value is a usage error"
+    (doseq [args [["--timeout"] ["-t" "soon" "https://a.test"] ["--max-size" "0" "https://a.test"]
+                  ["--max-size" "-1" "https://a.test"] ["--timeout" "NaN" "https://a.test"]]]
+      (is (= 2 (:status (run-captured args))) (pr-str args))))
+  (testing "the limits are for fetching, not stdin"
+    (is (= 2 (:status (run-captured ["-t" "5" "-"] "<p>x</p>"))))))
+
+(deftest base-url-must-be-absolute-http
+  (doseq [base ["example.com/post" "https://x.test/a b" "ftp://x.test/"]]
+    (let [{:keys [status err]} (run-captured ["-u" base "-"] "<p>x</p>")]
+      (is (= 2 status) base)
+      (is (re-find #"--base-url must be an absolute" err) base))))
+
+(def ^:private article
+  (str "<html><head><script>var a=b**2;c=d**3;</script></head><body><article><h1>Title</h1><p>"
+       (apply str (repeat 30 "Some words of real content. "))
+       "<a href=\"/next\">Next</a></p></article></body></html>"))
+
+(deftest stdin-html-is-extracted
+  (testing "HTML with Markdown-like text near the top is still parsed as HTML"
+    (let [{:keys [status out]} (run-captured ["-u" "https://example.com/a/" "-"] article)]
+      (is (= 0 status))
+      (is (re-find #"(?m)^# Title" out))
+      (is (re-find #"\(https://example.com/next\)" out))
+      (is (not (re-find #"<script>" out)))))
+  (testing "a canonical URL that java.net.URI rejects is ignored, not fatal"
+    (let [html (str "<html><head><link rel=\"canonical\" href=\"https://site.test/a b\"></head>"
+                    (subs article (count "<html><head>")))
+          {:keys [status out err]} (run-captured ["-"] html)]
+      (is (= 0 status) err)
+      (is (re-find #"(?m)^# Title" out)))))
+
+(deftest stdin-markdown-passes-through
+  (let [md "---\ntitle: Notes\nauthor: Someone\n---\n\n# Notes\n\n- one\n- two\n"]
+    (testing "frontmatter is stripped without -m"
+      (let [{:keys [status out]} (run-captured ["-"] md)]
+        (is (= 0 status))
+        (is (str/starts-with? out "# Notes"))))
+    (testing "with -m, frontmatter is rebuilt in r11y's schema"
+      (let [{:keys [out]} (run-captured ["-m" "-u" "https://site.test/notes" "-"] md)]
+        (is (str/starts-with? out "---"))
+        (is (re-find #"(?m)^title: Notes$" out))
+        (is (re-find #"(?m)^hostname: site.test$" out))
+        (is (re-find #"(?m)^# Notes$" out))))))
+
+(deftest limit-error-messages
+  (let [url "https://slow.test/page"]
+    (testing "a timeout names the limit and --timeout, not a dropped connection"
+      (let [e (ex-info "Timed out" {:type :r11y/timeout :url url :timeout-ms 30000}
+                       (java.net.http.HttpTimeoutException. "request timed out"))
+            msg (core/error-message url e)]
+        (is (re-find #"no complete response within 30 s" msg))
+        (is (re-find #"--timeout" msg))
+        (is (not (re-find #"dropped" msg)))))
+    (testing "a page over the size limit names it and --max-size"
+      (let [msg (core/error-message url (ex-info "big" {:type :r11y/body-too-large :url url
+                                                         :max-bytes (* 10 1024 1024)}))]
+        (is (re-find #"larger than 10 MB" msg))
+        (is (re-find #"--max-size" msg))))))

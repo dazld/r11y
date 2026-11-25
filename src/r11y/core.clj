@@ -16,6 +16,8 @@
   (println "  -l, --link-density N   Link density threshold 0-1 (default: 0.5)")
   (println "  -m, --with-metadata    Include YAML frontmatter with metadata")
   (println "  -u, --base-url URL     URL of HTML read from stdin, for links and metadata")
+  (println "  -t, --timeout SECONDS  Longest time to fetch a page (default: 30)")
+  (println "      --max-size MB      Largest page to fetch (default: 10)")
   (println "  -v, --version          Show version")
   (println "  -h, --help             Show this help message")
   (println "")
@@ -30,6 +32,14 @@
   (println "  r11y --link-density 0.3 https://example.com")
   (println "  r11y --with-metadata https://example.com")
   (println "  r11y --base-url https://example.com/article < page.html"))
+
+(defn- parse-positive
+  "[number nil] when s is a positive number, else [nil error-message]."
+  [s option]
+  (let [n (try (Double/parseDouble s) (catch NumberFormatException _ nil))]
+    (if (and n (pos? n) (Double/isFinite n))
+      [n nil]
+      [nil (str option " must be a positive number, got: " s)])))
 
 (defn parse-args
   [args]
@@ -60,6 +70,16 @@
               (if (:success parse-result)
                 (recur (rest rest-args) (assoc opts :link-density-threshold (:value parse-result)))
                 (assoc opts :error (:error parse-result)))))
+          (or (= arg "-t") (= arg "--timeout") (= arg "--max-size"))
+          (let [option (if (= arg "-t") "--timeout" arg)]
+            (if (empty? rest-args)
+              (assoc opts :error (str "Missing value for " option))
+              (let [[n error] (parse-positive (first rest-args) option)]
+                (cond error (assoc opts :error error)
+                      (= option "--timeout")
+                      (recur (rest rest-args) (assoc opts :timeout (long (* n 1000))))
+                      :else
+                      (recur (rest rest-args) (assoc opts :max-bytes (long (* n 1024 1024))))))))
           (or (= arg "-u") (= arg "--base-url"))
           (if (empty? rest-args)
             (assoc opts :error "Missing value for --base-url")
@@ -99,15 +119,16 @@
 
 (defn- stdin-terminal?
   "True when stdin is a terminal, not a pipe or a file. Java cannot test stdin
-   alone, so test(1) does it on the inherited stdin. Where that fails, a
-   console means a terminal: then r11y prints usage rather than wait."
+   alone, so test(1) does it on the inherited stdin. Where test(1) cannot
+   run, stdin is taken to be input: refusing piped input is worse than
+   waiting at a terminal. System.console() is no guide, as since JDK 22 it
+   can return a console when stdin is redirected."
   []
   (try
     (zero? (.waitFor (-> (ProcessBuilder. ^java.util.List ["test" "-t" "0"])
                          (.redirectInput java.lang.ProcessBuilder$Redirect/INHERIT)
                          (.start))))
-    (catch Exception _
-      (some? (System/console)))))
+    (catch Exception _ false)))
 
 (defn shell-quote
   "s quoted for a POSIX shell"
@@ -129,19 +150,61 @@
       (or (some #(let [m (.getMessage ^Throwable %)] (when-not (str/blank? m) m)) chain)
           (.getSimpleName (class e))))))
 
+(defn- r11y-error
+  "ex-data of the first exception in e's chain with :type error-type."
+  [^Throwable e error-type]
+  (some #(let [data (ex-data %)] (when (= error-type (:type data)) data))
+        (take-while some? (iterate #(.getCause ^Throwable %) e))))
+
+(defn- seconds [ms]
+  (let [s (/ ms 1000.0)]
+    (if (== s (Math/floor s)) (str (long s)) (str s))))
+
+(defn- megabytes [bytes]
+  (let [mb (/ bytes 1048576.0)]
+    (if (== mb (Math/floor mb)) (str (long mb)) (format "%.1f" mb))))
+
+(defn- pipe-in-hint [url]
+  (str "  r11y --base-url " (shell-quote url) " < page.html"))
+
 (defn error-message
   "Message to show when extraction from url fails with exception e."
   [url ^Throwable e]
-  (if (and (not (stdin-input? url)) (dropped-connection? e))
-    (str "Error fetching " url ": the server dropped the connection (" (describe e) ").\n"
-         "Some sites block clients that do not look like a browser. "
-         "You can save the page from a browser and pipe it in:\n"
-         "  r11y --base-url " (shell-quote url) " < page.html")
-    (str (if (::input-error (ex-data e)) "Error: " "Error extracting content: ")
-         (describe e))))
+  (let [fetching? (not (stdin-input? url))]
+    (cond
+      (and fetching? (r11y-error e :r11y/timeout))
+      (str "Error fetching " url ": no complete response within "
+           (seconds (:timeout-ms (r11y-error e :r11y/timeout))) " s.\n"
+           "If the site is slow, give it longer with --timeout SECONDS. "
+           "If it stalls clients that do not look like a browser, "
+           "save the page from a browser and pipe it in:\n"
+           (pipe-in-hint url))
+
+      (and fetching? (r11y-error e :r11y/body-too-large))
+      (str "Error fetching " url ": the page is larger than "
+           (megabytes (:max-bytes (r11y-error e :r11y/body-too-large))) " MB.\n"
+           "Allow a larger page with --max-size MB.")
+
+      (and fetching? (dropped-connection? e))
+      (str "Error fetching " url ": the server dropped the connection (" (describe e) ").\n"
+           "Some sites block clients that do not look like a browser. "
+           "You can save the page from a browser and pipe it in:\n"
+           (pipe-in-hint url))
+
+      :else
+      (str (if (::input-error (ex-data e)) "Error: " "Error extracting content: ")
+           (describe e)))))
+
+(defn- markdown-input?
+  "True when stdin input is Markdown. Input that starts with a tag is HTML,
+   whatever Markdown-like text its first bytes hold, such as x**2 in a
+   script."
+  [^bytes body]
+  (and (not (str/starts-with? (str/triml (String. body "UTF-8")) "<"))
+       (html/looks-like-markdown? body)))
 
 (defn- extract
-  [{:keys [url base-url link-density-threshold with-metadata]}]
+  [{:keys [url base-url link-density-threshold with-metadata timeout max-bytes]}]
   (if (stdin-input? url)
     (let [body (.readAllBytes System/in)]
       (cond
@@ -149,19 +212,24 @@
         (throw (ex-info "No input on stdin. Give a URL, or pipe in HTML." {::input-error true}))
 
         ;; Like the URL path, pass Markdown through rather than parse it as HTML
-        (html/looks-like-markdown? body)
-        {:markdown (str/trimr (String. body "UTF-8"))}
+        (markdown-input? body)
+        (update (html/passthrough-markdown body
+                                           :url (html/absolute-http-url base-url)
+                                           :with-metadata with-metadata)
+                :markdown str/trimr)
 
         :else
         (html/extract-content body
                               :format :markdown
-                              :base-url (or base-url (html/page-url body))
+                              :base-url (or (html/absolute-http-url base-url) (html/page-url body))
                               :link-density-threshold link-density-threshold
                               :with-metadata with-metadata)))
-    (html/extract-content-from-url url
-                                   :format :markdown
-                                   :link-density-threshold link-density-threshold
-                                   :with-metadata with-metadata)))
+    (apply html/extract-content-from-url url
+           :format :markdown
+           :link-density-threshold link-density-threshold
+           :with-metadata with-metadata
+           (concat (when timeout [:timeout timeout])
+                   (when max-bytes [:max-bytes max-bytes])))))
 
 (defn- usage-error
   "Print msg and usage to stderr; return the exit status for a wrong command line."
@@ -185,6 +253,10 @@
       (and (nil? (:url opts)) (stdin-terminal?)) (usage-error "No URL provided")
       (and (:base-url opts) (not (stdin-input? (:url opts))))
       (usage-error "--base-url is only used when reading HTML from stdin")
+      (and (:base-url opts) (not (html/absolute-http-url (:base-url opts))))
+      (usage-error (str "--base-url must be an absolute http(s) URL, got: " (:base-url opts)))
+      (and (or (:timeout opts) (:max-bytes opts)) (stdin-input? (:url opts)))
+      (usage-error "--timeout and --max-size are only used when fetching a URL")
       :else (let [result (try (extract opts)
                               (catch Exception e
                                 (binding [*out* *err*]
