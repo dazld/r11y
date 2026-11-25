@@ -147,3 +147,28 @@
                           :allow-url? (fn [u] (not (re-find #"/internal" u)))))))]
     (is (= :r11y/blocked-url type))
     (is (= ["/start"] requested))))
+
+(deftest repeated-location-header
+  (let [[resp requested]
+        (with-server {"/a" (fn [^HttpExchange ex]
+                             (.add (.getResponseHeaders ex) "Location" "/b")
+                             (.add (.getResponseHeaders ex) "Location" "/c")
+                             (.sendResponseHeaders ex 302 -1)
+                             (.close ex))
+                      "/b" (ok "first")}
+          #(http/get-url (str % "/a") {}))]
+    (is (= "first" (String. ^bytes (:body resp) "UTF-8")) "the first Location is followed")
+    (is (= ["/a" "/b"] requested))))
+
+(deftest body-is-read-on-a-daemon-thread
+  (let [reader-daemon? (atom nil)
+        [resp] (with-server {"/a" (ok "x")}
+                 (fn [base]
+                   (with-redefs [r11y.lib.http/read-limited
+                                 (let [f @#'r11y.lib.http/read-limited]
+                                   (fn [& args]
+                                     (reset! reader-daemon? (.isDaemon (Thread/currentThread)))
+                                     (apply f args)))]
+                     (http/get-url (str base "/a") {}))))]
+    (is (= "x" (String. ^bytes (:body resp) "UTF-8")))
+    (is (true? @reader-daemon?) "a non-daemon thread would keep a caller's JVM alive")))

@@ -1054,12 +1054,15 @@
         (catch Exception _ icon-url))
       icon-url)))
 
-(defn- absolute-http-url
-  "url when it is an absolute http(s) URL, else nil"
+(defn absolute-http-url
+  "url, trimmed, when it is an absolute http(s) URL that java.net.URI can
+   parse, else nil. Links are later resolved against it with URI, so a URL
+   with, say, a space in it is no use as a base."
   [url]
   (let [url (some-> url str/trim)]
     (when (and url (re-find #"(?i)^https?://[^/\s]" url))
-      url)))
+      (try (when (.getHost (URI. url)) url)
+           (catch Exception _ nil)))))
 
 (defn- resolve-canonical-url
   "Resolve a canonical URL against a base URL. An absolute canonical URL
@@ -1306,6 +1309,24 @@
      :icon (or (get fm "icon") "")
      :image (or (get fm "image") "")}))
 
+(defn passthrough-markdown
+  "Result for a body that is already Markdown (String or bytes), returned
+   as-is. Its YAML frontmatter is stripped. With :with-metadata, the
+   frontmatter is rebuilt in r11y's schema from the body's own frontmatter,
+   or else from :metadata, which the caller took from elsewhere (e.g. the
+   GitHub HTML page of a raw file). :url is the body's URL, if known."
+  [body & {:keys [url with-metadata metadata]}]
+  (let [text-body (if (bytes? body) (bytes->utf8 body) body)
+        {upstream-fm :frontmatter body :body} (parse-yaml-frontmatter text-body)
+        md-metadata (when (and with-metadata upstream-fm)
+                      (upstream-frontmatter->metadata upstream-fm url))
+        effective-metadata (or md-metadata metadata)]
+    {:markdown (str (when effective-metadata (metadata-to-frontmatter effective-metadata))
+                    body)
+     :links []
+     :images []
+     :metadata (or effective-metadata {})}))
+
 (defn looks-like-markdown?
   "Sniff body bytes/string to detect markdown content.
    Some servers (e.g. Cloudflare) return markdown but set content-type: text/html.
@@ -1437,17 +1458,10 @@
       ;; metadata extracted from the original URL (e.g. GitHub blob HTML page
       ;; when the extraction URL is the raw markdown).
       (not (str/includes? (str/lower-case resolved-content-type) "text/html"))
-      (let [text-body (if (bytes? extraction-body) (bytes->utf8 extraction-body) extraction-body)
-            {upstream-fm :frontmatter body :body} (parse-yaml-frontmatter text-body)
-            md-metadata (when (and with-metadata upstream-fm)
-                          (upstream-frontmatter->metadata upstream-fm url))
-            md-frontmatter (when md-metadata (metadata-to-frontmatter md-metadata))
-            effective-frontmatter (or md-frontmatter frontmatter)
-            effective-metadata (or md-metadata metadata)]
-        {:markdown (str effective-frontmatter body)
-         :links []
-         :images []
-         :metadata (or effective-metadata {})})
+      (passthrough-markdown extraction-body
+                            :url url
+                            :with-metadata with-metadata
+                            :metadata metadata)
 
       ;; For GitHub repo pages, extract README directly
       (and (str/includes? normalized-url "github.com")

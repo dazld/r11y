@@ -121,7 +121,9 @@ r11y --help
 
 - `-m, --with-metadata` - Include YAML frontmatter with metadata (title, author, date, description, etc.)
 - `-l, --link-density N` - Link density threshold 0-1 (default: 0.5). Lower values are more aggressive at filtering link-heavy content.
-- `-u, --base-url URL` - URL of HTML read from stdin, used to resolve relative links and images and for metadata
+- `-u, --base-url URL` - URL of HTML read from stdin, used to resolve relative links and images and for metadata. Must be an absolute http(s) URL.
+- `-t, --timeout SECONDS` - Longest time to fetch a page, redirects included (default: 30)
+- `--max-size MB` - Largest page to fetch (default: 10)
 - `-v, --version` - Show version
 - `-h, --help` - Show help message
 
